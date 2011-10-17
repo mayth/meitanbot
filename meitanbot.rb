@@ -235,6 +235,21 @@ class MeitanBot
   end
 end
 
+class Timer
+  def initialize(sec)
+    @th = Thread.new do
+	  while true do
+	    sleep sec;
+	    yield
+	  end
+	end
+  end
+
+  def stop
+    @th.stop
+  end
+end
+
 if $0 == __FILE__
   botThread = Thread.new do
     MeitanBot.new.run
