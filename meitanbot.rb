@@ -107,7 +107,8 @@ class MeitanBot
 		  t = Time.now.getutc
 		  if t.sec == 0 and t.min == 0
 		    tweet_timer_greeting t.hour + 11
-          if json['text']
+          end
+		  if json['text']
             puts "Post Received."
 			user = json['user']
 			unless IGNORE_IDS.include?(user['id']) 
