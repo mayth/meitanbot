@@ -12,11 +12,14 @@ class MeitanBot
   CREDENTIAL_FILE = 'credential.yaml'
   NOTMEITAN_FILE = 'notmeitan.txt'
   MENTION_FILE = 'reply_mention.txt'
+  HTTPS_CA_FILE = 'certificate.crt'
+  
+  # bot constants
   SCREEN_NAME = 'meitanbot'
   BOT_USER_AGENT = 'Nowhere-type Meitan bot 1.0 by @maytheplic'
-  HTTPS_CA_FILE = 'certificate.crt'
   MAX_RETRY_COUNT = 5
-  
+  IGNORE_IDS = [323080975, 246793872]
+
   def initialize
     # credentials
     open(CREDENTIAL_FILE) do |file|
@@ -104,7 +107,7 @@ class MeitanBot
           if json['text']
             puts "Post Received."
 			user = json['user']
-			unless user['id'] == 323080975 or user['id'] == 246793872
+			unless IGNORE_IDS.include?(user['id']) 
               if /.*め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん.*/ =~ json['text']
                 puts "meitan detected. reply to #{json['id']}"
 			    reply_meitan(user['screen_name'], json['id'])
@@ -113,7 +116,7 @@ class MeitanBot
                 reply_mention(user['screen_name'], json['id'])
               end
 			else
-			  puts "post from own or owner. ignored."
+			  puts "ignore list includes id#{user['id']}. ignored."
 			end
           elsif json['event']
 	        case json['event'].to_sym
@@ -233,5 +236,23 @@ class MeitanBot
 end
 
 if $0 == __FILE__
-  MeitanBot.new.run
+  botThread = Thread.new do
+    MeitanBot.new.run
+  end
+  
+  print "meitan-bot_console> "
+  while str = gets do
+    case str.chop!.to_sym
+	  when :exit
+	    botThread.exit
+	  when :quit
+	    botThread.exit
+	  when :help
+	    puts "exit or quit: terminate bot."
+		puts "help: show this message."
+	  else
+	    puts "unknown command. to show help, please type \"help\""
+	end
+	print "meitan-bot_console> "
+  end
 end
