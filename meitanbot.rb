@@ -1,18 +1,15 @@
 #! ruby -Ku
 
-require 'rubygems'
 require 'net/https'
 require 'oauth'
 require 'json'
 require 'kconv'
-
-def puts_sjis(s)
-  puts Kconv.tosjis(s.to_s)
-end
+require 'yaml'
+require 'twitter'
 
 class MeitanBot
   # files
-  TOKENS_FILE = 'tokens'
+  CREDENTIAL_FILE = 'credential.yaml'
   NOTMEITAN_FILE = 'notmeitan.txt'
   MENTION_FILE = 'reply_mention.txt'
   SCREEN_NAME = 'meitanbot'
@@ -21,49 +18,41 @@ class MeitanBot
   MAX_RETRY_COUNT = 5
   
   def initialize
-    # key / tokens
-    consumer_key = ""
-    consumer_secret = ""
-    access_token = ""
-    access_token_secret = ""
-
-    open(TOKENS_FILE) do |file|
-      consumer_key = file.gets
-      consumer_secret = file.gets
-      access_token = file.gets
-      access_token_secret = file.gets
+    # credentials
+    open(CREDENTIAL_FILE) do |file|
+	  @credential = YAML.load(file)
     end
-    
-    puts "consumer_key = #{consumer_key}"
-    puts "consumer_secret = #{consumer_secret}"
-    puts "access_token = #{access_token}"
-    puts "access_token_secret = #{access_token_secret}"
+
+    puts "credential:"
+    puts " consumer_key = #{@credential['consumer_key']}"
+    puts " consumer_secret = #{@credential['consumer_secret']}"
+    puts " access_token = #{@credential['access_token']}"
+    puts " access_token_secret = #{@credential['access_token_secret']}"
     
     @consumer = OAuth::Consumer.new(
-      consumer_key,
-      consumer_secret,
-      :site => 'http://twitter.com'
+      @credential['consumer_key'],
+      @credential['consumer_secret']
     )
     @access_token = OAuth::AccessToken.new(
       @consumer,
-      access_token,
-      access_token_secret
+      @credential['access_token'],
+      @credential['access_token_secret']
     )
-    
-    open(NOTMEITAN_FILE) do |file|
+     
+    open(MENTION_FILE) do |file|
       @reply_mention_text = file.readlines.collect{|line| line.strip}
     end
 
-    open(MENTION_FILE) do |file|
+    open(NOTMEITAN_FILE) do |file|
       @notmeitan_text = file.readlines.collect{|line| line.strip}
     end
     
     for s in @notmeitan_text do
-      puts_sjis s
+      puts s
     end
     
     for s in @reply_mention_text do
-      puts_sjis s
+      puts s
     end
   end
   
@@ -81,29 +70,6 @@ class MeitanBot
       request["User-Agent"] = BOT_USER_AGENT
       request.oauth!(https, @consumer, @access_token)
       
-      # Following new users
-      # followers - following = need to follow
-      followers = get_followers
-      followings = get_followings
-      need_to_follow = followers - following
-
-      puts "followers: "
-      for id in followers do
-        puts_sjis " #{id}"
-      end
-      puts "followings: "
-      for id in followings do
-        puts_sjis " #{id}"
-      end
-      puts "need to follow: "
-      for id in need_to_follow do
-        puts_sjis " #{id}"
-      end
-
-      for id in need_to_follow do
-        follow_user id
-      end
-      
       buf = ""
       https.request(request) do |response|
         response.read_body do |chunk|
@@ -111,7 +77,7 @@ class MeitanBot
           while ((line = buf[/.+?(\r\n)+/m]) != nil)
             begin
               buf.sub!(line, "")
-              line.strip!
+			  line.strip!
               status = JSON.parse(line)
             rescue
               break
@@ -125,23 +91,39 @@ class MeitanBot
   end
   
   def run
+  	first_run = true
     retry_count = 0
     loop do
       begin
         connect do |json|
-          puts_sjis json.to_s
+	  	  if (first_run)
+			follow_unfollowing_user
+	        tweet_greeting
+		    first_run = false
+		  end
           if json['text']
-            puts "Event Received."
-            user = json['user']
-            if (json['text'].match("/.*め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]ん.*/"))
-              reply_meitan json['id']
+            puts "Post Received."
+			user = json['user']
+			unless user['id'] == 323080975 or user['id'] == 246793872
+              if /.*め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん.*/ =~ json['text']
+                puts "meitan detected. reply to #{json['id']}"
+			    reply_meitan(user['screen_name'], json['id'])
+              elsif /.*@#{SCREEN_NAME}.*/ =~ json['text']
+			    puts "mention detected. reply to #{json['id']}"
+                reply_mention(user['screen_name'], json['id'])
+              end
+			else
+			  puts "post from own or owner. ignored."
+			end
+          elsif json['event']
+	        case json['event'].to_sym
+			  when :follow
+			    puts "new follower: #{json['source']}"
+		        follow_user json['source']['id'] 
             end
-            if (json['text'].match("/.*@#{SCREEN_NAME}.*/"))
-              reply_mention json['id']
-            end
-          end
+		  end
         end
-      rescue Timeout::Error, StandardError
+	  rescue Timeout::Error, StandardError
         if (retry_count < 5)
           retry_count += 1
           puts $!
@@ -154,23 +136,37 @@ class MeitanBot
     end
   end
   
-  def reply_meitan(in_reply_to_id)
+  def tweet_greeting
+    puts "greeting"
+	post 'starting meitan-bot. Hello! ' + Time.now.strftime("%X")
+  end
+
+  def reply_meitan(reply_screen_name, in_reply_to_id)
     puts "replying to meitan"
-    @access_token.post('/statuses/update.json',
-      'status' => "@#{user['screen_name']} #{random_notmeitan}",
-      'in_reply_to_status_id' => in_reply_to_id)
+    post_reply("@#{reply_screen_name} #{random_notmeitan}", in_reply_to_id)
   end
   
-  def reply_mention(in_reply_to_id)
+  def reply_mention(reply_screen_name, in_reply_to_id)
     puts "replying to mention"
-    @access_token.post('/statuses/update.json',
-      'status' => "@#{user['screen_name']} #{random_notmeitan}",
-      'in_reply_to_status_id' => in_reply_to_id)
+    post_reply("@#{reply_screen_name} #{random_mention}", in_reply_to_id)
+  end
+
+  def post_reply(status, in_reply_to_id)
+  	puts "replying"
+	@access_token.post('https://api.twitter.com/1/statuses/update.json',
+		'status' => status,
+		'in_reply_to_status_id' => in_reply_to_id)
+  end
+
+  def post(status)
+  	puts "posting"
+	@access_token.post('https://api.twitter.com/1/statuses/update.json',
+		'status' => status)
   end
   
   def follow_user(id)
     puts "following user: #{id}"
-    @access_token.post('/friendships/create.json',
+    @access_token.post('https://api.twitter.com/1/friendships/create.json',
       'user_id' => id)
   end
 
@@ -182,27 +178,56 @@ class MeitanBot
     @reply_mention_text[rand(@reply_mention_text.size)]
   end
   
-  def get_followers(cursor=-1)
-    result = []
-    if (cursor != 0)
-      json = JSON.parse(@access_token.get('/followers/ids.json',
-        'cursor' => cursor,
-        'screen_name' => SCREEN_NAME))
-      result << json['ids']
-      get_followers(json['next_cursor'])
-      return result.flatten!
+  def get_followers(cursor = '-1')
+    puts "get_followers: cursor=#{cursor}"
+	result = []
+    if (cursor != '0')
+      res = @access_token.get('https://api.twitter.com/1/followers/ids.json',
+	  	'cursor' => cursor,
+		'screen_name' => SCREEN_NAME)
+	  json = JSON.parse(res.body)
+      result << json
+	  # get_followers(json['next_cursor_str'])
+	  return result.flatten!
     end
   end
   
-  def get_followings(cursor=-1)
-    result = []
-    if (cursor != 0)
-      json = JSON.parse(@access_token.get('/friends/ids.json',
+  def get_followings(cursor = '-1')
+    puts "get_followings: cursor=#{cursor}"
+    result = [] 
+    if (cursor != '0')
+      res = @access_token.get('https://api.twitter.com/1/friends/ids.json',
         'cursor' => cursor,
-        'screen_name' => SCREEN_NAME))
-      result << json['ids']
-      get_followings(json['next_cursor'])
+        'screen_name' => SCREEN_NAME)
+	  json = JSON.parse(res.body)
+	  result << json
+      # get_followings(json['next_cursor_str'])
       return result.flatten!
+    end
+  end
+
+  def follow_unfollowing_user
+    # Following new users
+    # followers - following = need to follow
+    followers = get_followers
+    followings = get_followings
+    need_to_follow = followers - followings
+
+    puts "followers: "
+    for id in followers do
+      puts " #{id}"
+    end
+    puts "followings: "
+    for id in followings do
+      puts " #{id}"
+    end
+    puts "need to follow: "
+    for id in need_to_follow do
+      puts " #{id}"
+    end
+
+    for id in need_to_follow do
+      follow_user id
     end
   end
 end
