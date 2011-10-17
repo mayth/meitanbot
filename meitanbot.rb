@@ -104,6 +104,9 @@ class MeitanBot
 	        tweet_greeting
 		    first_run = false
 		  end
+		  t = Time.now.getutc
+		  if t.sec == 0 and t.min == 0
+		    tweet_timer_greeting t.hour + 11
           if json['text']
             puts "Post Received."
 			user = json['user']
@@ -142,6 +145,11 @@ class MeitanBot
   def tweet_greeting
     puts "greeting"
 	post 'starting meitan-bot. Hello! ' + Time.now.strftime("%X")
+  end
+
+  def tweet_timer_greeting(hour)
+    puts "timer greeting"
+	post "#{hour}時(TST)をお知らせします。"
   end
 
   def reply_meitan(reply_screen_name, in_reply_to_id)
