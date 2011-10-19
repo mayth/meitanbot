@@ -41,6 +41,7 @@ class MeitanBot
     @meitan_queue = Queue.new
     @reply_queue = Queue.new
     @csharp_queue = Queue.new
+    @retweet_queue = Queue.new
     @event_queue = Queue.new
     @message_queue = Queue.new
 
@@ -117,8 +118,12 @@ class MeitanBot
       loop do
         json = @post_queue.pop
         user = json['user']
+        if json['text'].include?('#meitanbot') and user['id'] == OWNER_ID
+          puts 'Owner update the status including meitanbot hash-tag.'
+          @retweet_queue.push json
+        end
         unless IGNORE_IDS.include?(user['id']) or (@is_ignore_owner and user['id'] == OWNER_ID)
-          if /.*め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん.*/ =~ json['text']
+          if /.*め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん.*/ =~ json['text'] or json['text'].include?('#mei_tan')
             puts "meitan detected. reply to #{json['id']}"
             @meitan_queue.push json
           elsif /^@#{SCREEN_NAME}/ =~ json['text']
@@ -144,7 +149,7 @@ class MeitanBot
         res = reply_meitan(json['user']['screen_name'], json['id'])
         if res === Net::HTTPForbidden
           puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
-          puts "Sleeping #{SLEEP_WHEN_FORBIDDEN} sec"
+          puts "meitan thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
           sleep SLEEP_WHEN_FORBIDDEN
         end
       end
@@ -160,7 +165,7 @@ class MeitanBot
         res = reply_mention(json['user']['screen_name'], json['id'])
         if res === Net::HTTPForbidden
           puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
-          puts "Sleeping #{SLEEP_WHEN_FORBIDDEN} sec"
+          puts "reply thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
           sleep SLEEP_WHEN_FORBIDDEN
         end
       end
@@ -176,13 +181,29 @@ class MeitanBot
         res = reply_csharp(json['user']['screen_name'], json['id'])
         if res === Net::HTTPForbidden
           puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
-          puts "Sleeping #{SLEEP_WHEN_FORBIDDEN} sec"
+          puts "csharp thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
           sleep SLEEP_WHEN_FORBIDDEN
         end
       end
     end
     @tweeter_threads.add csharp_thread
-
+    
+    sleep 1
+    
+    retweet_thread = Thread.new do
+      puts 'retweet thread start'
+      loop do
+        json = @retweet_queue.pop
+        res = retweet(json['id'])
+        if res === Net::HTTPForbidden
+          puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
+          puts "retweet thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
+          sleep SLEEP_WHEN_FORBIDDEN
+        end
+      end
+    end
+    @tweeter_threads.add retweet_thread
+    
     sleep 1
 
     event_thread = Thread.new do
