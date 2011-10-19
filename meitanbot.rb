@@ -26,6 +26,7 @@ class MeitanBot
 
   def initialize
     # thread queue
+    @post_queue = Queue.new
     @meitan_queue = Queue.new
     @reply_queue = Queue.new
     @csharp_queue = Queue.new
@@ -91,7 +92,31 @@ class MeitanBot
   def run
     first_run = true
     retry_count = 0
-    
+
+    post_thread = Thread.new do
+      puts 'post thread start'
+      loop do
+        json = @post_queue.pop
+        user = json['user']
+        unless IGNORE_IDS.include?(user['id']) or (@is_ignore_owner and user['id'] == OWNER_ID)
+          if /.*め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん.*/ =~ json['text']
+            puts "meitan detected. reply to #{json['id']}"
+            @meitan_queue.push json
+          elsif /^@#{SCREEN_NAME}/ =~ json['text']
+            puts "reply detected. reply to #{json['id']}"
+            @reply_queue.push json
+          elsif /.*C#.*/ =~ json['text']
+            puts "C# detected. reply to #{json['id']}"
+            @csharp_queue.push json
+          end
+        else
+          puts "ignore list includes id:#{user['id']}. ignored."
+        end
+      end
+    end
+
+    sleep 1
+
     meitan_thread = Thread.new do
       puts 'meitan thread start'
       loop do
@@ -177,6 +202,20 @@ class MeitanBot
       end
     end
 
+    time_signal_thread = Thread.new do
+      puts 'time signal thread start'
+      loop do
+        t = Time.now.getutc
+        if t.min == 0
+          loop do
+            t = Time.now.getutc
+            post_time_signal t.hour + 7
+            sleep(60 * 60) # sleep 1 hour
+          end
+        end
+      end
+    end
+
     sleep 1
     
     puts "Receiver start"
@@ -189,27 +228,9 @@ class MeitanBot
               tweet_greeting
               first_run = false
           end
-          t = Time.now.getutc
-          if t.sec == 0 and t.min == 0
-            tweet_timer_greeting t.hour + 7
-          end
           if json['text']
             puts "Post Received."
-            user = json['user']
-            unless IGNORE_IDS.include?(user['id']) or (@is_ignore_owner and user['id'] == OWNER_ID)
-              if /.*め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん.*/ =~ json['text']
-                puts "meitan detected. reply to #{json['id']}"
-                @meitan_queue.push json
-              elsif /^@#{SCREEN_NAME}/ =~ json['text']
-                puts "reply detected. reply to #{json['id']}"
-                @reply_queue.push json
-              elsif /.*C#.*/ =~ json['text']
-                puts "C# detected. reply to #{json['id']}"
-                @csharp_queue.push json
-              end
-            else
-              puts "ignore list includes id:#{user['id']}. ignored."
-            end
+            post_queue.push json
           elsif json['event']
             puts 'Event Received.'
             @event_queue.push json
@@ -236,8 +257,8 @@ class MeitanBot
     post 'starting meitan-bot. Hello! ' + Time.now.strftime("%X")
   end
 
-  def tweet_timer_greeting(hour)
-    puts "timer greeting"
+  def post_time_signal(hour)
+    puts "time signal: #{hour}"
     post "#{hour}時(TST)をお知らせします。"
   end
 
