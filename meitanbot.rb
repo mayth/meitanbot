@@ -3,7 +3,6 @@
 require 'net/https'
 require 'oauth'
 require 'json'
-require 'kconv'
 require 'yaml'
 require 'twitter'
 
@@ -95,7 +94,8 @@ class MeitanBot
 		  if t.sec == 0 and t.min == 0
 		    tweet_timer_greeting t.hour + 7
 		  end
-          if json['text']
+          end
+		  if json['text']
             puts "Post Received."
 			user = json['user']
 			unless IGNORE_IDS.include?(user['id']) or (@is_ignore_owner and user['id'] == OWNER_ID)
