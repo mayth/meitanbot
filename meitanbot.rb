@@ -29,7 +29,7 @@ class MeitanBot
     
     # credentials
     open(CREDENTIAL_FILE) do |file|
-	  @credential = YAML.load(file)
+      @credential = YAML.load(file)
     end
 
     @consumer = OAuth::Consumer.new(
@@ -58,7 +58,7 @@ class MeitanBot
       request = Net::HTTP::Get.new(uri.request_uri)
       request["User-Agent"] = BOT_USER_AGENT
       request.oauth!(https, @consumer, @access_token)
-      
+
       buf = ""
       https.request(request) do |response|
         response.read_body do |chunk|
@@ -66,7 +66,7 @@ class MeitanBot
           while ((line = buf[/.+?(\r\n)+/m]) != nil)
             begin
               buf.sub!(line, "")
-			  line.strip!
+              line.strip!
               status = JSON.parse(line)
             rescue
               break
@@ -80,44 +80,44 @@ class MeitanBot
   end
   
   def run
-  	first_run = true
+    first_run = true
     retry_count = 0
     loop do
       begin
         connect do |json|
-	  	  if (first_run)
-			follow_unfollowing_user
-			remove_removed_user
-	        tweet_greeting
-		    first_run = false
-		  end
-		  t = Time.now.getutc
-		  if t.sec == 0 and t.min == 0
-		    tweet_timer_greeting t.hour + 7
+          if (first_run)
+              follow_unfollowing_user
+              remove_removed_user
+              tweet_greeting
+              first_run = false
           end
-		  if json['text']
+          t = Time.now.getutc
+          if t.sec == 0 and t.min == 0
+            tweet_timer_greeting t.hour + 7
+          end
+          if json['text']
             puts "Post Received."
-			user = json['user']
-			unless IGNORE_IDS.include?(user['id']) or (@is_ignore_owner and user['id'] == OWNER_ID)
+            user = json['user']
+            unless IGNORE_IDS.include?(user['id']) or (@is_ignore_owner and user['id'] == OWNER_ID)
               if /.*め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん.*/ =~ json['text']
                 puts "meitan detected. reply to #{json['id']}"
-			    reply_meitan(user['screen_name'], json['id'])
+                reply_meitan(user['screen_name'], json['id'])
               elsif /^@#{SCREEN_NAME}/ =~ json['text']
-			    puts "reply detected. reply to #{json['id']}"
+                puts "reply detected. reply to #{json['id']}"
                 reply_mention(user['screen_name'], json['id'])
               elsif /.*C#.*/ =~ json['text']
                 puts "C# detected. reply to #{json['id']}"
                 reply_csharp(user['screen_name'], json['id'])
               end
-			else
-			  puts "ignore list includes id:#{user['id']}. ignored."
-			end
+            else
+              puts "ignore list includes id:#{user['id']}. ignored."
+            end
           elsif json['event']
             puts 'Event Received.'
-	        case json['event'].to_sym
-			  when :follow
-			    puts "new follower: #{json['source']}"
-		        follow_user json['source']['id'] 
+            case json['event'].to_sym
+              when :follow
+                puts "new follower: #{json['source']}"
+                follow_user json['source']['id'] 
             end
           elsif json['direct_message']
             puts 'Direct Message Received.'
@@ -140,9 +140,9 @@ class MeitanBot
                   OWNER_ID)
               end
             end
-		  end
+          end
         end
-	  rescue Timeout::Error, StandardError
+      rescue Timeout::Error, StandardError
         if (retry_count < 5)
           retry_count += 1
           puts $!
@@ -157,12 +157,12 @@ class MeitanBot
   
   def tweet_greeting
     puts "greeting"
-	post 'starting meitan-bot. Hello! ' + Time.now.strftime("%X")
+    post 'starting meitan-bot. Hello! ' + Time.now.strftime("%X")
   end
 
   def tweet_timer_greeting(hour)
     puts "timer greeting"
-	post "#{hour}時(TST)をお知らせします。"
+    post "#{hour}時(TST)をお知らせします。"
   end
 
   def reply_meitan(reply_screen_name, in_reply_to_id)
@@ -181,16 +181,16 @@ class MeitanBot
   end
 
   def post_reply(status, in_reply_to_id)
-  	puts "replying"
-	@access_token.post('https://api.twitter.com/1/statuses/update.json',
-		'status' => status,
-		'in_reply_to_status_id' => in_reply_to_id)
+      puts "replying"
+    @access_token.post('https://api.twitter.com/1/statuses/update.json',
+        'status' => status,
+        'in_reply_to_status_id' => in_reply_to_id)
   end
 
   def post(status)
-  	puts "posting"
-	@access_token.post('https://api.twitter.com/1/statuses/update.json',
-		'status' => status)
+      puts "posting"
+    @access_token.post('https://api.twitter.com/1/statuses/update.json',
+        'status' => status)
   end
   
   def send_direct_message(text, recipient_id)
@@ -230,15 +230,15 @@ class MeitanBot
   
   def get_followers(cursor = '-1')
     puts "get_followers: cursor=#{cursor}"
-	result = []
+    result = []
     if (cursor != '0')
       res = @access_token.get('https://api.twitter.com/1/followers/ids.json',
-	  	'cursor' => cursor,
-		'screen_name' => SCREEN_NAME)
-	  json = JSON.parse(res.body)
+          'cursor' => cursor,
+        'screen_name' => SCREEN_NAME)
+      json = JSON.parse(res.body)
       result << json
-	  # get_followers(json['next_cursor_str'])
-	  return result.flatten!
+      # get_followers(json['next_cursor_str'])
+      return result.flatten!
     end
   end
   
@@ -249,8 +249,8 @@ class MeitanBot
       res = @access_token.get('https://api.twitter.com/1/friends/ids.json',
         'cursor' => cursor,
         'screen_name' => SCREEN_NAME)
-	  json = JSON.parse(res.body)
-	  result << json
+      json = JSON.parse(res.body)
+      result << json
       # get_followings(json['next_cursor_str'])
       return result.flatten!
     end
@@ -321,11 +321,11 @@ end
 class Timer
   def initialize(sec)
     @th = Thread.new do
-	  while true do
-	    sleep sec;
-	    yield
-	  end
-	end
+      while true do
+        sleep sec;
+        yield
+      end
+    end
   end
 
   def stop
