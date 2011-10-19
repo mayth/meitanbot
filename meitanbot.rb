@@ -110,9 +110,6 @@ class MeitanBot
   def run
     puts 'run!'
 
-    follow_unfollowing_user
-    remove_removed_user
-
     # ThreadGroup for the thread that can tweet
     @tweeter_threads = ThreadGroup.new
 
@@ -272,6 +269,17 @@ class MeitanBot
       end
     end
     @tweeter_threads.add time_signal_thread
+
+    sleep 1
+
+    friendship_check_thread = Thread.new do
+      puts 'friendship check thread start'
+      loop do
+        follow_unfollowing_user
+        remove_removed_user
+        sleep(60 * 60 * 12) # sleep half a day
+      end
+    end
 
     sleep 1
 
