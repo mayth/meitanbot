@@ -87,13 +87,13 @@ class MeitanBot
         connect do |json|
 	  	  if (first_run)
 			follow_unfollowing_user
+			remove_unremoved_user
 	        tweet_greeting
 		    first_run = false
 		  end
 		  t = Time.now.getutc
 		  if t.sec == 0 and t.min == 0
 		    tweet_timer_greeting t.hour + 7
-		  end
           end
 		  if json['text']
             puts "Post Received."
@@ -134,8 +134,8 @@ class MeitanBot
                     when :false
                       @is_ignore_owner = false
                   end
-                puts "command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}"
-                send_direct_message(
+                  puts "command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}"
+                  send_direct_message(
                   "command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}",
                   OWNER_ID)
               end
