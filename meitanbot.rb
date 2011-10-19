@@ -16,6 +16,8 @@ class MeitanBot
   MENTION_FILE = 'reply_mention.txt'
   # Text for replying "C#"
   REPLY_CSHARP_FILE = 'reply_csharp.txt'
+  # Text for replying morning greeting
+  REPLY_MORNING_FILE = 'reply_morning.txt'
   # HTTPS Certificate file
   HTTPS_CA_FILE = 'certificate.crt'
 
@@ -41,6 +43,7 @@ class MeitanBot
     @meitan_queue = Queue.new
     @reply_queue = Queue.new
     @csharp_queue = Queue.new
+    @morning_greeting_queue = Queue.new
     @retweet_queue = Queue.new
     @event_queue = Queue.new
     @message_queue = Queue.new
@@ -123,7 +126,7 @@ class MeitanBot
           @retweet_queue.push json
         end
         unless IGNORE_IDS.include?(user['id']) or (@is_ignore_owner and user['id'] == OWNER_ID)
-          if /.*め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん.*/ =~ json['text'] or json['text'].include?('#mei_tan')
+          if /め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん/ =~ json['text'] or json['text'].include?('#mei_tan')
             puts "meitan detected. reply to #{json['id']}"
             @meitan_queue.push json
           elsif /^@#{SCREEN_NAME}/ =~ json['text']
@@ -132,6 +135,9 @@ class MeitanBot
           elsif /.*C#.*/ =~ json['text']
             puts "C# detected. reply to #{json['id']}"
             @csharp_queue.push json
+          elsif /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(むくり)|(^mkr$)/ =~ json['text']
+            puts "morning greeting detected. reply to #{json['id']}"
+            @morning_greeting_queue.push json
           end
         else
           puts "ignore list includes id:#{user['id']}. ignored."
@@ -190,6 +196,21 @@ class MeitanBot
     
     sleep 1
     
+    morning_greeting_thread = Thread.new do
+      puts 'morning greeting thread start'
+      loop do
+        json = @morning_greeting_queue.pop
+        res = reply_morning(json['user']['screen_name'], json['id'])
+        if res === Net::HTTPForbidden
+          puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
+          puts "morning greeting thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
+          sleep SLEEP_WHEN_FORBIDDEN
+        end
+      end
+    end
+    
+    sleep 1
+    
     retweet_thread = Thread.new do
       puts 'retweet thread start'
       loop do
@@ -243,7 +264,8 @@ class MeitanBot
         if t.min == 0
           loop do
             t = Time.now.getutc
-            post_time_signal t.hour + 7
+            h = t.hour + 7
+            post_time_signal h >= 24 ? h - 24 : h
             sleep(60 * 60) # sleep 1 hour
           end
         end
@@ -316,6 +338,11 @@ class MeitanBot
     puts "replying to csharp"
     post_reply("@#{reply_screen_name} #{random_csharp}", in_reply_to_id)
   end
+  
+  def reply_morning(reply_screen_name, in_reply_to_id)
+    puts 'replying to morning greeting'
+    post_reply("@#{reply_screen_name} #{random_morning}", in_reply_to_id)
+  end
 
   # Reply
   def post_reply(status, in_reply_to_id)
@@ -382,9 +409,14 @@ class MeitanBot
     @reply_mention_text.sample
   end
 
-  # Get the replying for the status containing "C#" text
+  # Get the replying for the status containing "C#"
   def random_csharp
     @reply_csharp_text.sample
+  end
+
+  # Get the replying text for the status containing morning greeting
+  def random_morning
+    @reply_morning_text.sample
   end
 
   # Get followers
@@ -470,6 +502,10 @@ class MeitanBot
     open(REPLY_CSHARP_FILE, 'r:UTF-8') do |file|
       @reply_csharp_text = file.readlines.collect{|line| line.strip}
     end
+    
+    open(REPLY_MORNING_FILE, 'r:UTF-8') do |file|
+      @reply_morning_text = file.readlines.collect{|line| line.strip}
+    end
 
     puts 'notmeitan text:'
     for s in @notmeitan_text do
@@ -507,10 +543,10 @@ class MeitanBot
         puts 'no param'
       end
       puts "command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}"
-      send_direct_message("command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}", OWNER_ID)
+      send_direct_message("command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}", OWNER_ID) if report_by_message
     when :is_ignore_owner?
       puts "inquiry<is_ignore_owner> accepted. current value is #{@is_ignore_owner}"
-      send_direct_message("inquiry<is_ignore_owner> accepted. current value is #{@is_ignore_owner}", OWNER_ID)
+      send_direct_message("inquiry<is_ignore_owner> accepted. current value is #{@is_ignore_owner}", OWNER_ID) if report_by_message
     when :is_enable_posting
       if params[0]
         case params[0].to_sym
