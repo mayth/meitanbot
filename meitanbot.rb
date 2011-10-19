@@ -87,7 +87,7 @@ class MeitanBot
         connect do |json|
 	  	  if (first_run)
 			follow_unfollowing_user
-			remove_unremoved_user
+			remove_removed_user
 	        tweet_greeting
 		    first_run = false
 		  end
