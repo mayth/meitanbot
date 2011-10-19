@@ -1,4 +1,4 @@
-#! ruby -Ku
+#coding:utf-8
 
 require 'net/https'
 require 'oauth'
@@ -289,15 +289,15 @@ class MeitanBot
   end
   
   def read_post_text_files
-    open(MENTION_FILE) do |file|
+    open(MENTION_FILE, 'r:UTF-8') do |file|
       @reply_mention_text = file.readlines.collect{|line| line.strip}
     end
 
-    open(NOTMEITAN_FILE) do |file|
+    open(NOTMEITAN_FILE, 'r:UTF-8') do |file|
       @notmeitan_text = file.readlines.collect{|line| line.strip}
     end
     
-    open(REPLY_CSHARP_FILE) do |file|
+    open(REPLY_CSHARP_FILE, 'r:UTF-8') do |file|
       @reply_csharp_text = file.readlines.collect{|line| line.strip}
     end
 
