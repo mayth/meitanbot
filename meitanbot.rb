@@ -12,26 +12,27 @@ class MeitanBot
   CREDENTIAL_FILE = 'credential.yaml'
   NOTMEITAN_FILE = 'notmeitan.txt'
   MENTION_FILE = 'reply_mention.txt'
+  REPLY_CSHARP_FILE = 'reply_csharp.txt'
   HTTPS_CA_FILE = 'certificate.crt'
   
   # bot constants
   SCREEN_NAME = 'meitanbot'
   BOT_USER_AGENT = 'Nowhere-type Meitan bot 1.0 by @maytheplic'
   MAX_RETRY_COUNT = 5
-  IGNORE_IDS = [323080975, 246793872]
+  OWNER_ID = 246793872
+  MY_ID = 323080975
+  IGNORE_IDS = [MY_ID]
 
   def initialize
+    # fields
+    @is_ignore_owner = true
+    @is_output_json_in_log = false
+    
     # credentials
     open(CREDENTIAL_FILE) do |file|
 	  @credential = YAML.load(file)
     end
 
-    puts "credential:"
-    puts " consumer_key = #{@credential['consumer_key']}"
-    puts " consumer_secret = #{@credential['consumer_secret']}"
-    puts " access_token = #{@credential['access_token']}"
-    puts " access_token_secret = #{@credential['access_token_secret']}"
-    
     @consumer = OAuth::Consumer.new(
       @credential['consumer_key'],
       @credential['consumer_secret']
@@ -41,22 +42,8 @@ class MeitanBot
       @credential['access_token'],
       @credential['access_token_secret']
     )
-     
-    open(MENTION_FILE) do |file|
-      @reply_mention_text = file.readlines.collect{|line| line.strip}
-    end
 
-    open(NOTMEITAN_FILE) do |file|
-      @notmeitan_text = file.readlines.collect{|line| line.strip}
-    end
-    
-    for s in @notmeitan_text do
-      puts s
-    end
-    
-    for s in @reply_mention_text do
-      puts s
-    end
+    read_post_text_files
   end
   
   def connect
@@ -106,26 +93,52 @@ class MeitanBot
 		  end
 		  t = Time.now.getutc
 		  if t.sec == 0 and t.min == 0
-		    tweet_timer_greeting t.hour + 11
+		    tweet_timer_greeting t.hour + 7
+		  end
           if json['text']
             puts "Post Received."
 			user = json['user']
-			unless IGNORE_IDS.include?(user['id']) 
+			unless IGNORE_IDS.include?(user['id']) or (@is_ignore_owner and user['id'] == OWNER_ID)
               if /.*め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん.*/ =~ json['text']
                 puts "meitan detected. reply to #{json['id']}"
 			    reply_meitan(user['screen_name'], json['id'])
-              elsif /.*@#{SCREEN_NAME}.*/ =~ json['text']
-			    puts "mention detected. reply to #{json['id']}"
+              elsif /^@#{SCREEN_NAME}/ =~ json['text']
+			    puts "reply detected. reply to #{json['id']}"
                 reply_mention(user['screen_name'], json['id'])
+              elsif /.*C#.*/ =~ json['text']
+                puts "C# detected. reply to #{json['id']}"
+                reply_csharp(user['screen_name'], json['id'])
               end
 			else
-			  puts "ignore list includes id#{user['id']}. ignored."
+			  puts "ignore list includes id:#{user['id']}. ignored."
 			end
           elsif json['event']
+            puts 'Event Received.'
 	        case json['event'].to_sym
 			  when :follow
 			    puts "new follower: #{json['source']}"
 		        follow_user json['source']['id'] 
+            end
+          elsif json['direct_message']
+            puts 'Direct Message Received.'
+            sender = json['direct_message']['sender']
+            text = json['direct_message']['text'].strip
+            if sender['id'] == OWNER_ID && text.start_with?('cmd')
+              puts "Received Command Message"
+              cmd_ary = text.split
+              case cmd_ary[1].to_sym
+                when :is_ignore_owner
+                  case cmd_ary[2].to_sym
+                    when :true
+                      @is_ignore_owner = true
+                    when :false
+                      @is_ignore_owner = false
+                  end
+                puts "command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}"
+                send_direct_message(
+                  "command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}",
+                  OWNER_ID)
+              end
             end
 		  end
         end
@@ -162,6 +175,11 @@ class MeitanBot
     post_reply("@#{reply_screen_name} #{random_mention}", in_reply_to_id)
   end
 
+  def reply_csharp(reply_screen_name, in_reply_to_id)
+    puts "replying to csharp"
+    post_reply("@#{reply_screen_name} #{random_csharp}", in_reply_to_id)
+  end
+
   def post_reply(status, in_reply_to_id)
   	puts "replying"
 	@access_token.post('https://api.twitter.com/1/statuses/update.json',
@@ -175,18 +193,31 @@ class MeitanBot
 		'status' => status)
   end
   
+  def send_direct_message(text, recipient_id)
+    puts "Sending Direct Message"
+    @access_token.post('https://api.twitter.com/1/direct_messages/new.json',
+      'user_id' => recipient_id,
+      'text' => text)
+  end
+  
   def follow_user(id)
-    puts "following user: #{id}"
-    @access_token.post('https://api.twitter.com/1/friendships/create.json',
-      'user_id' => id)
+    unless id == MY_ID
+      puts "following user: #{id}"
+      @access_token.post('https://api.twitter.com/1/friendships/create.json',
+        'user_id' => id)
+    end
   end
 
   def random_notmeitan
-    @notmeitan_text[rand(@notmeitan_text.size)]
+    @notmeitan_text.sample
   end
   
   def random_mention
-    @reply_mention_text[rand(@reply_mention_text.size)]
+    @reply_mention_text.sample
+  end
+  
+  def random_csharp
+    @reply_csharp_text.sample
   end
   
   def get_followers(cursor = '-1')
@@ -241,6 +272,35 @@ class MeitanBot
       follow_user id
     end
   end
+  
+  def read_post_text_files
+    open(MENTION_FILE) do |file|
+      @reply_mention_text = file.readlines.collect{|line| line.strip}
+    end
+
+    open(NOTMEITAN_FILE) do |file|
+      @notmeitan_text = file.readlines.collect{|line| line.strip}
+    end
+    
+    open(REPLY_CSHARP_FILE) do |file|
+      @reply_csharp_text = file.readlines.collect{|line| line.strip}
+    end
+
+    puts 'notmeitan text:'
+    for s in @notmeitan_text do
+      puts ' ' + s
+    end
+    
+    puts 'reply text:'
+    for s in @reply_mention_text do
+      puts ' ' + s
+    end
+
+    puts 'reply csharp text:'
+    for s in @reply_csharp_text do
+      puts ' ' + s
+    end
+  end
 end
 
 class Timer
@@ -262,20 +322,5 @@ if $0 == __FILE__
   botThread = Thread.new do
     MeitanBot.new.run
   end
-  
-  print "meitan-bot_console> "
-  while str = gets do
-    case str.chop!.to_sym
-	  when :exit
-	    botThread.exit
-	  when :quit
-	    botThread.exit
-	  when :help
-	    puts "exit or quit: terminate bot."
-		puts "help: show this message."
-	  else
-	    puts "unknown command. to show help, please type \"help\""
-	end
-	print "meitan-bot_console> "
-  end
+  botThread.join
 end
