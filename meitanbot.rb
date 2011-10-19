@@ -207,6 +207,14 @@ class MeitanBot
         'user_id' => id)
     end
   end
+  
+  def remove_user(id)
+    unless id == MY_ID
+      puts "removing user: #{id}"
+      @access_token.post('https://api.twitter.com/1/friendships/destroy.json',
+        'user_id' => id)
+    end
+  end
 
   def random_notmeitan
     @notmeitan_text.sample
@@ -255,14 +263,6 @@ class MeitanBot
     followings = get_followings
     need_to_follow = followers - followings
 
-    puts "followers: "
-    for id in followers do
-      puts " #{id}"
-    end
-    puts "followings: "
-    for id in followings do
-      puts " #{id}"
-    end
     puts "need to follow: "
     for id in need_to_follow do
       puts " #{id}"
@@ -270,6 +270,21 @@ class MeitanBot
 
     for id in need_to_follow do
       follow_user id
+    end
+  end
+  
+  def remove_removed_user
+    followers = get_followers
+    followings = get_followings
+    need_to_remove = followings - followers
+    
+    puts 'need to remove: '
+    for id in need_to_remove do
+      puts " #{id}"
+    end
+    
+    for id in need_to_remove do
+      remove_user id
     end
   end
   
