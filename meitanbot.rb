@@ -5,6 +5,7 @@ require 'oauth'
 require 'json'
 require 'yaml'
 require 'twitter'
+require 'thread'
 
 class MeitanBot
   # files
@@ -21,8 +22,16 @@ class MeitanBot
   OWNER_ID = 246793872
   MY_ID = 323080975
   IGNORE_IDS = [MY_ID]
+  SLEEP_WHEN_FORBIDDEN = 300
 
   def initialize
+    # thread queue
+    @meitan_queue = Queue.new
+    @reply_queue = Queue.new
+    @csharp_queue = Queue.new
+    @event_queue = Queue.new
+    @message_queue = Queue.new
+
     # fields
     @is_ignore_owner = true
     @is_output_json_in_log = false
@@ -82,6 +91,95 @@ class MeitanBot
   def run
     first_run = true
     retry_count = 0
+    
+    meitan_thread = Thread.new do
+      puts 'meitan thread start'
+      loop do
+        json = @meitan_queue.pop
+        res = reply_meitan(json['user']['screen_name'], json['id'])
+        if res === Net::HTTPForbidden
+          puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
+          puts "Sleeping #{SLEEP_WHEN_FORBIDDEN} sec"
+          sleep SLEEP_WHEN_FORBIDDEN
+        end
+      end
+    end
+    
+    sleep 1
+    
+    reply_thread = Thread.new do
+      puts 'reply thread start'
+      loop do
+        json = @reply_queue.pop
+        res = reply_mention(json['user']['screen_name'], json['id'])
+        if res === Net::HTTPForbidden
+          puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
+          puts "Sleeping #{SLEEP_WHEN_FORBIDDEN} sec"
+          sleep SLEEP_WHEN_FORBIDDEN
+        end
+      end
+    end
+    
+    sleep 1
+
+    csharp_thread = Thread.new do
+      puts 'csharp thread start'
+      loop do
+        json = @reply_queue.pop
+        res = reply_csharp(json['user']['screen_name'], json['id'])
+        if res === Net::HTTPForbidden
+          puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
+          puts "Sleeping #{SLEEP_WHEN_FORBIDDEN} sec"
+          sleep SLEEP_WHEN_FORBIDDEN
+        end
+      end
+    end
+
+    sleep 1
+    
+    event_thread = Thread.new do
+      puts 'event thread start'
+      loop do
+        json = @event_queue.pop
+        case json['event'].to_sym
+          when :follow
+            puts "new follower: #{json['source']}"
+            follow_user json['source']['id'] 
+        end
+      end
+    end
+
+    sleep 1
+    
+    message_thread = Thread.new do
+      puts 'message thread start'
+      loop do
+        json = @message_queue.pop
+        sender = json['direct_message']['sender']
+        text = json['direct_message']['text'].strip
+        if sender['id'] == OWNER_ID && text.start_with?('cmd')
+          puts "Received Command Message"
+          cmd_ary = text.split
+          case cmd_ary[1].to_sym
+            when :is_ignore_owner
+              case cmd_ary[2].to_sym
+                when :true
+                  @is_ignore_owner = true
+                when :false
+                  @is_ignore_owner = false
+              end
+              puts "command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}"
+              send_direct_message(
+                "command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}",
+                OWNER_ID)
+           end
+        end
+      end
+    end
+
+    sleep 1
+    
+    puts "Receiver start"
     loop do
       begin
         connect do |json|
@@ -101,45 +199,23 @@ class MeitanBot
             unless IGNORE_IDS.include?(user['id']) or (@is_ignore_owner and user['id'] == OWNER_ID)
               if /.*め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん.*/ =~ json['text']
                 puts "meitan detected. reply to #{json['id']}"
-                reply_meitan(user['screen_name'], json['id'])
+                @meitan_queue.push json
               elsif /^@#{SCREEN_NAME}/ =~ json['text']
                 puts "reply detected. reply to #{json['id']}"
-                reply_mention(user['screen_name'], json['id'])
+                @reply_queue.push json
               elsif /.*C#.*/ =~ json['text']
                 puts "C# detected. reply to #{json['id']}"
-                reply_csharp(user['screen_name'], json['id'])
+                @csharp_queue.push json
               end
             else
               puts "ignore list includes id:#{user['id']}. ignored."
             end
           elsif json['event']
             puts 'Event Received.'
-            case json['event'].to_sym
-              when :follow
-                puts "new follower: #{json['source']}"
-                follow_user json['source']['id'] 
-            end
+            @event_queue.push json
           elsif json['direct_message']
             puts 'Direct Message Received.'
-            sender = json['direct_message']['sender']
-            text = json['direct_message']['text'].strip
-            if sender['id'] == OWNER_ID && text.start_with?('cmd')
-              puts "Received Command Message"
-              cmd_ary = text.split
-              case cmd_ary[1].to_sym
-                when :is_ignore_owner
-                  case cmd_ary[2].to_sym
-                    when :true
-                      @is_ignore_owner = true
-                    when :false
-                      @is_ignore_owner = false
-                  end
-                  puts "command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}"
-                  send_direct_message(
-                  "command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}",
-                  OWNER_ID)
-              end
-            end
+            @message_queue.push json
           end
         end
       rescue Timeout::Error, StandardError
@@ -188,9 +264,9 @@ class MeitanBot
   end
 
   def post(status)
-      puts "posting"
-    @access_token.post('https://api.twitter.com/1/statuses/update.json',
-        'status' => status)
+    puts "posting"
+    res = @access_token.post('https://api.twitter.com/1/statuses/update.json',
+      'status' => status)
   end
   
   def send_direct_message(text, recipient_id)
@@ -214,6 +290,11 @@ class MeitanBot
       @access_token.post('https://api.twitter.com/1/friendships/destroy.json',
         'user_id' => id)
     end
+  end
+
+  def retweet(id)
+    puts "retweeting status-id: #{id}"
+    @access_token.post("https://api.twitter.com/1/statuses/retweet/#{id}.json")
   end
 
   def random_notmeitan
@@ -334,8 +415,5 @@ class Timer
 end
 
 if $0 == __FILE__
-  botThread = Thread.new do
-    MeitanBot.new.run
-  end
-  botThread.join
+  MeitanBot.new.run
 end
