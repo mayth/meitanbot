@@ -262,8 +262,9 @@ class MeitanBot
           loop do
             t = Time.now.getutc
             h = t.hour + 7
+            diff = t.sec < 10 ? 0 : t.sec - 1
             post_time_signal h >= 24 ? h - 24 : h
-            sleep(60 * 60) # sleep 1 hour
+            sleep(60 * 60 - diff) # sleep 1 hour
           end
         end
       end
