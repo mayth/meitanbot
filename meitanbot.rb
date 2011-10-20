@@ -3,6 +3,7 @@
 require 'net/https'
 require 'oauth'
 require 'json'
+require 'psych'
 require 'yaml'
 require 'twitter'
 require 'thread'
@@ -25,8 +26,13 @@ class MeitanBot
   SCREEN_NAME = 'meitanbot'
   # User-Agent
   BOT_USER_AGENT = 'Nowhere-type Meitan bot 1.0 by @maytheplic'
-  # Max retrying count when disconnected from Twitter or exception was thrown
-  MAX_RETRY_COUNT = 5
+  # Continuative retrying count when disconnected from Twitter or exception was thrown
+  # If retry count is exceeded this value, sleeping receiver _LONG_RETRY_INTERVAL_ sec.
+  MAX_CONTINUATIVE_RETRY_COUNT = 5
+  # Interval time for continuative retrying
+  SHORT_RETRY_INTERVAL = 15
+  # Interval time for retrying. This value will be used when retry count is exceeded _MAX_CONTINUATIVE_RETRY_COUNT_
+  LONG_RETRY_INTERVAL = 60
   # Twitter ID of the owner of this bot
   OWNER_ID = 246793872
   # Twitter ID of this bot
@@ -34,7 +40,11 @@ class MeitanBot
   # Twitter IDs to ignore
   IGNORE_IDS = [MY_ID]
   # Sleeping time when Twitter API returns 403(Forbidden)
-  SLEEP_WHEN_FORBIDDEN = 300
+  SLEEP_WHEN_FORBIDDEN = 600
+  # Interval time for statistics
+  STAT_INTERVAL = 60
+  # Statistics output file
+  STAT_FILE = 'statistics.log'
 
   # Initialize this class.
   def initialize
@@ -47,6 +57,21 @@ class MeitanBot
     @retweet_queue = Queue.new
     @event_queue = Queue.new
     @message_queue = Queue.new
+    
+    ## Statistics
+    # Required time for status update request.
+    @tweet_request_time = Array.new
+    @statistics = {
+      tweet_request_time_average: 0.0,
+      post_received_count: 0,
+      event_received_count: 0,
+      message_received_count: 0,
+      reply_received_count: 0,
+      post_count: 0,
+      reply_count: 0,
+      send_message_count: 0,
+      total_retry_count: 0
+    }
 
     # fields
     @is_ignore_owner = true
@@ -180,7 +205,7 @@ class MeitanBot
     csharp_thread = Thread.new do
       puts 'csharp thread start'
       loop do
-        json = @reply_queue.pop
+        json = @csharp_queue.pop
         res = reply_csharp(json['user']['screen_name'], json['id'])
         if res === Net::HTTPForbidden
           puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
@@ -286,28 +311,71 @@ class MeitanBot
 
     receiver_thread = Thread.new do
       puts "receiver thread start"
+      total_retry_count = 0
       retry_count = 0
       loop do
         begin
           connect do |json|
             if json['text']
+              @statistics[:post_received_count] += 1
               @post_queue.push json
             elsif json['event']
+              @statistics[:event_received_count] += 1
               @event_queue.push json
             elsif json['direct_message']
+              @statistics[:message_received_count] += 1
               @message_queue.push json
             end
           end
         rescue Timeout::Error, StandardError
-          if (retry_count < MAX_RETRY_COUNT)
+          puts 'Connection to Twitter is disconnected or Application error was occured.'
+          @statistics[:total_retry_count] += 1
+          if (retry_count < MAX_CONTINUATIVE_RETRY_COUNT)
             retry_count += 1
             puts $!
-            puts("Connection to Twitter is disconnected. Re-connect. retry:#{retry_count}")
+            puts(" retry:#{retry_count}")
+            sleep SHORT_RETRY_INTERVAL
+            puts 'retry!'
           else
-            puts("Retry Limit. Terminate bot.")
-            exit
+            puts 'Continuative retry was failed. Receiver will sleep long...'
+            sleep LONG_RETRY_INTERVAL
+            retry_count = 0
+            puts 'retry!'
           end
         end
+      end
+    end
+    
+    sleep 1
+    
+    statistics_thread = Thread.new do
+      begin
+        puts 'statistics thread start'
+        before_time = Time.now
+        puts "<STAT> Meitan-bot statistics thread started at #{Time.now.to_s}"
+        loop do
+          current_time = Time.now
+          puts "<STAT> Statistics at #{current_time.to_s}"
+          @tweet_request_time.compact!
+          total = 0.0
+          for t in @tweet_request_time
+            total += t
+          end
+          @statistics[:tweet_request_time_average] = total / @statistics[:post_count]
+          @statistics.to_s.lines do |line|
+            puts "<STAT> #{line}"
+          end
+          if (current_time.min % 10) == 0
+            puts 'output log'
+            out = { current_time.strftime('%F_%H:%M') => @statistics }
+            open(STAT_FILE, 'a:UTF-8') do |file|
+              file << out.to_yaml
+            end
+          end
+          sleep STAT_INTERVAL
+        end
+      ensure
+        puts "<STAT> Meitan-bot statistics thread terminated at #{Time.now.to_s}"
       end
     end
     
@@ -356,10 +424,15 @@ class MeitanBot
   # Reply
   def post_reply(status, in_reply_to_id)
     if @is_enabled_posting
+      @statistics[:post_count] += 1
+      @statistics[:reply_count] += 1
       puts "replying"
+      req_start = Time.now
       @access_token.post('https://api.twitter.com/1/statuses/update.json',
         'status' => status,
         'in_reply_to_status_id' => in_reply_to_id)
+      req_end = Time.now
+      @tweet_request_time << req_start - req_end
     else
       puts "posting function is now disabled because @is_enabled_posting is false."
     end
@@ -368,16 +441,31 @@ class MeitanBot
   # Post
   def post(status)
     if @is_enabled_posting
+      @statistics[:post_count] += 1
       puts "posting"
+      req_start = Time.now
       res = @access_token.post('https://api.twitter.com/1/statuses/update.json',
         'status' => status)
+      req_end = Time.now
+      @tweet_request_time << req_start - req_end
     else
       puts "posting function is now disabled because @is_enabled_posting is false."
     end
   end
 
+  # Retweet the status
+  def retweet(id)
+    @statistics[:post_count] += 1
+    puts "retweeting status-id: #{id}"
+    req_start = Time.now
+    @access_token.post("https://api.twitter.com/1/statuses/retweet/#{id}.json")
+    req_end = Time.now
+    @tweet_request_time << req_start - req_end
+  end
+
   # Send Direct Message
   def send_direct_message(text, recipient_id)
+    @statistics[:send_message_count] += 1
     puts "Sending Direct Message"
     @access_token.post('https://api.twitter.com/1/direct_messages/new.json',
       'user_id' => recipient_id,
@@ -400,12 +488,6 @@ class MeitanBot
       @access_token.post('https://api.twitter.com/1/friendships/destroy.json',
         'user_id' => id)
     end
-  end
-
-  # Retweet the status
-  def retweet(id)
-    puts "retweeting status-id: #{id}"
-    @access_token.post("https://api.twitter.com/1/statuses/retweet/#{id}.json")
   end
 
   # Get "not-meitan" text
@@ -537,6 +619,7 @@ class MeitanBot
   # _params_ is command parameters. Parameters is array.
   # If _report_by_message is true, report the command result by sending direct message to owner. By default, this is true.
   def control_command(command, params, report_by_message = true)
+    puts "control_command: #{command}"
     case command
     when :is_ignore_owner
       if params[0]
@@ -587,7 +670,17 @@ class MeitanBot
       begin
         id = Integer(params[1])
       rescue
-        puts 'ID Conversion failure.'
+        puts 'ID Conversion failure. Try to get ID from string'
+        begin
+          screen_name = String(params[1])
+          res = @access_token.post('http://api.twitter.com/1/users/lookup.json', 'screen_name' => screen_name)
+          json = JSON.parse(res.body)
+          json.each do |user|
+            id = json['id'] if json['screen_name'] == screen_name
+          end
+        rescue
+          puts 'String conversion / Get the ID from Screen Name failure.'
+        end
       end
       unless id == 0
         if params[0]
