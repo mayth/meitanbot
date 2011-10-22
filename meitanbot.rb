@@ -152,6 +152,7 @@ class MeitanBot
             puts "meitan detected. reply to #{json['id']}"
             @meitan_queue.push json
           elsif /^@#{SCREEN_NAME}/ =~ json['text']
+            @statistics[:reply_received_count] += 1
             puts "reply detected. reply to #{json['id']}"
             @reply_queue.push json
           elsif /.*C#.*/ =~ json['text']
@@ -329,16 +330,16 @@ class MeitanBot
               end
             end
           rescue Timeout::Error, StandardError
-            puts 'Connection to Twitter is disconnected or Application error was occured.'
+            puts '<RESCUE> SConnection to Twitter is disconnected or Application error was occured.'
             @statistics[:total_retry_count] += 1
             if (retry_count < MAX_CONTINUATIVE_RETRY_COUNT)
               retry_count += 1
               puts $!
-              puts(" retry:#{retry_count}")
+              puts("<RESCUE> retry:#{retry_count}")
               sleep SHORT_RETRY_INTERVAL
               puts 'retry!'
             else
-              puts 'Continuative retry was failed. Receiver will sleep long...'
+              puts '<RESCUE> Continuative retry was failed. Receiver will sleep long...'
               sleep LONG_RETRY_INTERVAL
               retry_count = 0
               puts 'retry!'
