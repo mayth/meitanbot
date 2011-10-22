@@ -310,39 +310,44 @@ class MeitanBot
     sleep 1
 
     receiver_thread = Thread.new do
-      puts "receiver thread start"
-      total_retry_count = 0
-      retry_count = 0
-      loop do
-        begin
-          connect do |json|
-            if json['text']
-              @statistics[:post_received_count] += 1
-              @post_queue.push json
-            elsif json['event']
-              @statistics[:event_received_count] += 1
-              @event_queue.push json
-            elsif json['direct_message']
-              @statistics[:message_received_count] += 1
-              @message_queue.push json
+      begin
+        puts "receiver thread start"
+        total_retry_count = 0
+        retry_count = 0
+        loop do
+          begin
+            connect do |json|
+              if json['text']
+                @statistics[:post_received_count] += 1
+                @post_queue.push json
+              elsif json['event']
+                @statistics[:event_received_count] += 1
+                @event_queue.push json
+              elsif json['direct_message']
+                @statistics[:message_received_count] += 1
+                @message_queue.push json
+              end
+            end
+          rescue Timeout::Error, StandardError
+            puts 'Connection to Twitter is disconnected or Application error was occured.'
+            @statistics[:total_retry_count] += 1
+            if (retry_count < MAX_CONTINUATIVE_RETRY_COUNT)
+              retry_count += 1
+              puts $!
+              puts(" retry:#{retry_count}")
+              sleep SHORT_RETRY_INTERVAL
+              puts 'retry!'
+            else
+              puts 'Continuative retry was failed. Receiver will sleep long...'
+              sleep LONG_RETRY_INTERVAL
+              retry_count = 0
+              puts 'retry!'
             end
           end
-        rescue Timeout::Error, StandardError
-          puts 'Connection to Twitter is disconnected or Application error was occured.'
-          @statistics[:total_retry_count] += 1
-          if (retry_count < MAX_CONTINUATIVE_RETRY_COUNT)
-            retry_count += 1
-            puts $!
-            puts(" retry:#{retry_count}")
-            sleep SHORT_RETRY_INTERVAL
-            puts 'retry!'
-          else
-            puts 'Continuative retry was failed. Receiver will sleep long...'
-            sleep LONG_RETRY_INTERVAL
-            retry_count = 0
-            puts 'retry!'
-          end
         end
+      ensure
+        puts 'receiver thread terminated.'
+        post "Terminating meitan-bot Bye! #{Time.now.to_s}"
       end
     end
     
@@ -352,7 +357,7 @@ class MeitanBot
       begin
         puts 'statistics thread start'
         before_time = Time.now
-        puts "<STAT> Meitan-bot statistics thread started at #{Time.now.to_s}"
+        puts "<STAT> Meitan-bot statistics thread started at #{Time.now.strftime("%X")}"
         loop do
           current_time = Time.now
           puts "<STAT> Statistics at #{current_time.to_s}"
@@ -375,7 +380,7 @@ class MeitanBot
           sleep STAT_INTERVAL
         end
       ensure
-        puts "<STAT> Meitan-bot statistics thread terminated at #{Time.now.to_s}"
+        puts "<STAT> Meitan-bot statistics thread terminated at #{Time.now.strftime("%X")}"
       end
     end
     
@@ -389,7 +394,7 @@ class MeitanBot
   # Tweet the greeting post when bot is started.
   def tweet_greeting
     puts "greeting"
-    post 'starting meitan-bot. Hello! ' + Time.now.strftime("%X")
+    post "Starting meitan-bot. Hello! + #{Time.now.strftime('%X')}"
   end
 
   # Tweet the time signal post.
