@@ -8,6 +8,25 @@ require 'yaml'
 require 'twitter'
 require 'thread'
 
+class User
+  attr_reader :id, :screen_name
+  
+  def initialize(json)
+    @id = json['id']
+    @screen_name = json['screen_name']
+  end
+end
+
+class Tweet
+  attr_reader :id, :text, :user
+  
+  def initialize(json)
+    @id = json['id']
+    @text = json['text']
+    @user = User.new json['user']
+  end
+end
+
 class MeitanBot
   # YAML-File including credential data
   CREDENTIAL_FILE = 'credential.yaml'
@@ -19,6 +38,10 @@ class MeitanBot
   REPLY_CSHARP_FILE = 'reply_csharp.txt'
   # Text for replying morning greeting
   REPLY_MORNING_FILE = 'reply_morning.txt'
+  # Text for replying departure posts
+  REPLY_DEPARTURE_FILE = 'reply_departure.txt'
+  # Text for replying returning posts
+  REPLY_RETURN_FILE = 'reply_return.txt'
   # HTTPS Certificate file
   HTTPS_CA_FILE = 'certificate.crt'
 
@@ -158,7 +181,7 @@ class MeitanBot
           elsif /.*C#.*/ =~ json['text']
             puts "C# detected. reply to #{json['id']}"
             @csharp_queue.push json
-          elsif /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(むくり)|(^mkr$)/ =~ json['text']
+          elsif /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(むくり)|(^mkr$)/ =~ json['text'] and not (/^@[a-zA-Z0-9_]+/ =~ json['text'])
             puts "morning greeting detected. reply to #{json['id']}"
             @morning_greeting_queue.push json
           end
@@ -256,7 +279,7 @@ class MeitanBot
         json = @event_queue.pop
         case json['event'].to_sym
         when :follow
-          puts "new follower: #{json['source']}"
+          puts "new follower: id:#{json['source']['id']}, screen_name:@#{json['source']['screen_name']}"
           follow_user json['source']['id']
         end
       end
@@ -268,12 +291,14 @@ class MeitanBot
       puts 'message thread start'
       loop do
         json = @message_queue.pop
+        puts 'Message received.'
         sender = json['direct_message']['sender']
         text = json['direct_message']['text'].strip
         if sender['id'] == OWNER_ID && text.start_with?('cmd ')
           puts "Received Command Message"
           cmd_ary = text.split(3)
-          control_command(cmd_ary[1].to_sym, cmd_ary[2].split)
+          puts 'text splitted'
+          control_command(cmd_ary[1].to_sym, cmd_ary[2].split, true)
         end
       end # end of loop do ...
     end # end of Thread.new do ...
@@ -348,7 +373,7 @@ class MeitanBot
         end
       ensure
         puts 'receiver thread terminated.'
-        post "Terminating meitan-bot Bye! #{Time.now.to_s}"
+        post "Terminating meitan-bot Bye! #{Time.now.strftime("%X")}"
       end
     end
     
@@ -395,7 +420,7 @@ class MeitanBot
   # Tweet the greeting post when bot is started.
   def tweet_greeting
     puts "greeting"
-    post "Starting meitan-bot. Hello! + #{Time.now.strftime('%X')}"
+    post "Starting meitan-bot. Hello! #{Time.now.strftime('%X')}"
   end
 
   # Tweet the time signal post.
@@ -427,6 +452,16 @@ class MeitanBot
     post_reply("@#{reply_screen_name} #{random_morning}", in_reply_to_id)
   end
 
+  def reply_departure(reply_screen_name, in_reply_to_id)
+    puts 'replying to departure'
+    post_reply("@#{reply_screen_name} #{random_departure}", in_reply_to_id)
+  end
+  
+  def reply_return(reply_screen_name, in_reply_to_id)
+    puts 'replying to returning'
+    post_reply("@#{reply_screen_name} #{random_return}", in_reply_to_id)
+  end
+
   # Reply
   def post_reply(status, in_reply_to_id)
     if @is_enabled_posting
@@ -438,7 +473,7 @@ class MeitanBot
         'status' => status,
         'in_reply_to_status_id' => in_reply_to_id)
       req_end = Time.now
-      @tweet_request_time << req_start - req_end
+      @tweet_request_time << req_end - req_start
     else
       puts "posting function is now disabled because @is_enabled_posting is false."
     end
@@ -453,7 +488,7 @@ class MeitanBot
       res = @access_token.post('https://api.twitter.com/1/statuses/update.json',
         'status' => status)
       req_end = Time.now
-      @tweet_request_time << req_start - req_end
+      @tweet_request_time << req_end - req_start
     else
       puts "posting function is now disabled because @is_enabled_posting is false."
     end
@@ -466,7 +501,7 @@ class MeitanBot
     req_start = Time.now
     @access_token.post("https://api.twitter.com/1/statuses/retweet/#{id}.json")
     req_end = Time.now
-    @tweet_request_time << req_start - req_end
+    @tweet_request_time << req_end - req_start
   end
 
   # Send Direct Message
@@ -514,6 +549,15 @@ class MeitanBot
   # Get the replying text for the status containing morning greeting
   def random_morning
     @reply_morning_text.sample
+  end
+  
+  # Get the replying text for the status containing departures
+  def random_departure
+    @reply_departure_text.sample
+  end
+  
+  def random_return
+    @reply_return_text.sample
   end
 
   # Get followers
@@ -603,6 +647,14 @@ class MeitanBot
     open(REPLY_MORNING_FILE, 'r:UTF-8') do |file|
       @reply_morning_text = file.readlines.collect{|line| line.strip}
     end
+    
+    open(REPLY_DEPARTURE_FILE, 'r:UTF-8') do |file|
+      @reply_departure_text = file.readlines.collect{|line| line.strip}
+    end
+    
+    open(REPLY_RETURN_FILE, 'r:UTF-8') do |file|
+      @reply_return_text = file.readlines.collect{|line| line.strip}
+    end
 
     puts 'notmeitan text:'
     for s in @notmeitan_text do
@@ -616,6 +668,16 @@ class MeitanBot
 
     puts 'reply csharp text:'
     for s in @reply_csharp_text do
+      puts ' ' + s
+    end
+    
+    puts 'reply departure text:'
+    for s in @reply_departure_text do
+      puts ' ' + s
+    end
+
+    puts 'reply returning text:'
+    for s in @reply_return_text do
       puts ' ' + s
     end
   end
@@ -719,12 +781,16 @@ class MeitanBot
       followings = get_followings
       followers = get_followers
       puts "inquiry<show_friendships> accepted. followings/followers=#{followings.size}/#{followers.size}"
+      send_direct_message("inquiry<show_friendships> accepted. followings/followers=#{followings.size}/#{followers.size}", OWNER_ID) if report_by_message
     when :help
       puts "inquiry<help> accepted. Available commands: is_ignore_owner(?), is_enable_posting(?), reload_post_text, ignore_user."
-      send_direct_message("This function is only available on command-line.") if report_by_message
+      send_direct_message("This function is only available on command-line.", OWNER_ID) if report_by_message
+    when :ping
+      puts 'inquiry<ping> accepted. Meitan-bot is alive! ' + Time.now.to_s
+      send_direct_message("inquiry<ping> accepted. Meitan-bot is alive! #{Time.now.to_s}", OWNER_ID) if report_by_message
     else
       puts 'unknown command received. to show help, please send help command.'
-      send_direct_message('unknown command received.') if report_by_message
+      send_direct_message('unknown command received.', OWNER_ID) if report_by_message
     end
   end
 
@@ -750,9 +816,9 @@ if $0 == __FILE__
       if cmd_ary[1]
         case cmd_ary[1].to_sym
         when :true
-          is_report_enabled = true
+          command_line_vars[:is_report_enabled] = true
         when :false
-          is_report_enabled = false
+          command_line_vars[:is_report_enabled] = false
         end
       end
       puts "Report by Direct Message: #{command_line_vars[:is_report_enabled]}"
