@@ -32,6 +32,28 @@ class Tweet
   end
 end
 
+class CurrentWeather 
+  attr_reader :condition, :temp, :humidity, :wind
+
+  def initialize(condition, temp, humidity, wind)
+    @condition = condition
+	@temp = temp
+	@humidity = humidity.gsub('湿度 : ', '')
+	@wind = wind.gsub('風: ', '')
+  end
+end
+
+class ForecastWeather 
+  attr_reader :condition, :day_of_week, :low, :high
+
+  def initialize(day_of_week, condition, low, high)
+    @day_of_week = day_of_week
+	@condition = condition
+	@low = Integer(low)
+	@high = Integer(high)
+  end
+end
+
 class MeitanBot
   # YAML-File including credential data
   CREDENTIAL_FILE = 'credential.yaml'
@@ -195,7 +217,7 @@ class MeitanBot
           elsif /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(むくり)|(^mkr$)/ =~ json['text'] and not (/^@[a-zA-Z0-9_]+/ =~ json['text'])
             puts "morning greeting detected. reply to #{json['id']}"
             @reply_queue.push Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :morning})
-          elsif /(今|明日|あさって)の天気/
+          elsif /(今|明日|あさって)の天気を教えて/
             puts "Inquiry of wheather detected. reply to #{json['id']}"
             ahead = 0
             case $1
@@ -450,11 +472,32 @@ class MeitanBot
   end
 
   def reply_weather(reply_screen_name, in_reply_to_id, ahead)
-    doc = REXML::Document.new Net::HTTP.get(URI.parse(FORECAST_API_URL + '?weather=' + FORECAST_LOCATION))
+    raise ArgumentError if ahead < 0 or 4 < ahead
+	doc = REXML::Document.new Net::HTTP.get(URI.parse(FORECAST_API_URL + '?weather=' + FORECAST_LOCATION + '&hl=ja'))
     if ahead == 0 # Get current condition
       cond_element = doc.elements['/xml_api_reply/weather/current_conditions']
+	  cond = CurrentWeather.new(
+        cond_element.elements['condition'].attributes['data'],
+        cond_element.elements['temp_c'].attributes['data'],
+		cond_element.elements['humidity'].attributes['data'],
+		cond_element.elements['wind'].attributes['data'])
+	  post_reply("@#{reply_screen_name} 今の天気は#{cond.condition}、気温#{cond.temp}℃、湿度#{cond.humidity}、風は#{cond.wind}だよ。", in_reply_to_id)
     else # Get forecast condition
-      cond_element = doc.elements['/xml_api_reply/weather/forecast_conditions'][ahead - 1]
+      cond_element = doc.elements['/xml_api_reply/weather/forecast_conditions[' + ahead + ']']
+	  cond = ForecastWeather.new(
+	    cond_element.elements['condition'].attributes['data'],
+		cond_element.elements['day_of_week'].attributes['data'],
+		cond_element.elements['low'].attributes['data'],
+		cond_element.elements['high'].attributes['data'])
+      case ahead
+	  when 1
+	    target_day = '明日'
+      when 2
+	    target_day = 'あさって'
+      else
+        raise ArgumentError
+	  end
+	  post_reply("@#{reply_screen_name} #{target_day}（#{cond.day_of_week}曜日）の天気は#{cond.condition}、気温は最高#{cond.high}℃、最低#{cond.low}℃だよ。", in_reply_to_id)
     end
   end
 
@@ -679,7 +722,7 @@ class MeitanBot
   end
   
   # Control this bot.
-  # _command_ is command symbol.
+  # _cemmand_ is command symbol.
   # _params_ is command parameters. Parameters is array.
   # If _report_by_message is true, report the command result by sending direct message to owner. By default, this is true.
   def control_command(command, params, report_by_message = true)
