@@ -7,23 +7,28 @@ require 'psych'
 require 'yaml'
 require 'twitter'
 require 'thread'
+require 'rexml/document'
 
 class User
   attr_reader :id, :screen_name
   
-  def initialize(json)
-    @id = json['id']
-    @screen_name = json['screen_name']
+  def initialize(id, screen_name)
+    @id = id
+    @screen_name = screen_name
   end
 end
 
 class Tweet
-  attr_reader :id, :text, :user
+  attr_reader :id, :text, :user, :attr
   
-  def initialize(json)
-    @id = json['id']
-    @text = json['text']
-    @user = User.new json['user']
+  def initialize(id, text, user, attr = nil)
+    @id = id
+    @text = text
+    @user = user
+    unless attr
+      raise ArgumentError unless attr.is_a?(Hash)
+      @attr = attr
+    end
   end
 end
 
@@ -44,6 +49,11 @@ class MeitanBot
   REPLY_RETURN_FILE = 'reply_return.txt'
   # HTTPS Certificate file
   HTTPS_CA_FILE = 'certificate.crt'
+
+  # Forecast API URL
+  FORECAST_API_URL = 'http://www.google.com/ig/api'
+  # Forecast location
+  FORECAST_LOCATION = 'tsukuba,ibaraki'
 
   # Screen name of this bot
   SCREEN_NAME = 'meitanbot'
@@ -80,6 +90,7 @@ class MeitanBot
     @retweet_queue = Queue.new
     @event_queue = Queue.new
     @message_queue = Queue.new
+    @weather_queue = Queue.new
     
     ## Statistics
     # Required time for status update request.
@@ -173,17 +184,29 @@ class MeitanBot
         unless IGNORE_IDS.include?(user['id']) or (@is_ignore_owner and user['id'] == OWNER_ID)
           if /め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん/ =~ json['text'] or json['text'].include?('#mei_tan')
             puts "meitan detected. reply to #{json['id']}"
-            @meitan_queue.push json
+            @reply_queue.push Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :meitan})
           elsif /^@#{SCREEN_NAME}/ =~ json['text']
             @statistics[:reply_received_count] += 1
             puts "reply detected. reply to #{json['id']}"
-            @reply_queue.push json
+            @reply_queue.push Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :normal_reply})
           elsif /.*C#.*/ =~ json['text']
             puts "C# detected. reply to #{json['id']}"
-            @csharp_queue.push json
+            @reply_queue.push Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :csharp})
           elsif /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(むくり)|(^mkr$)/ =~ json['text'] and not (/^@[a-zA-Z0-9_]+/ =~ json['text'])
             puts "morning greeting detected. reply to #{json['id']}"
-            @morning_greeting_queue.push json
+            @reply_queue.push Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :morning})
+          elsif /(今|明日|あさって)の天気/
+            puts "Inquiry of wheather detected. reply to #{json['id']}"
+            ahead = 0
+            case $1
+            when '今'
+              ahead = 0
+            when '明日'
+              ahead = 1
+            when 'あさって'
+              ahead = 2
+            end
+            @reply_queue.push Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :weather, :ahead => ahead})
           end
         else
           puts "ignore list includes id:#{user['id']}. ignored."
@@ -194,27 +217,22 @@ class MeitanBot
 
     sleep 1
 
-    meitan_thread = Thread.new do
-      puts 'meitan thread start'
-      loop do
-        json = @meitan_queue.pop
-        res = reply_meitan(json['user']['screen_name'], json['id'])
-        if res === Net::HTTPForbidden
-          puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
-          puts "meitan thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
-          sleep SLEEP_WHEN_FORBIDDEN
-        end
-      end
-    end
-    @tweeter_threads.add meitan_thread
-
-    sleep 1
-
     reply_thread = Thread.new do
       puts 'reply thread start'
       loop do
-        json = @reply_queue.pop
-        res = reply_mention(json['user']['screen_name'], json['id'])
+        tweet = @reply_queue.pop
+        case tweet.attr[:reply_type]
+        when :meitan
+          res = reply_csharp(tweet.user, tweet.id)
+        when :normal_reply
+          res = reply_mention(tweet.user, tweet.id)
+        when :csharp
+          res = reply_csharp(tweet.user, tweet.id)
+        when :morning
+          res = reply_morning(tweet.user, tweet.id)
+        when :weather
+          res = reply_wheather(tweet.user, tweet.id, tweet.attr[:ahead])
+        end
         if res === Net::HTTPForbidden
           puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
           puts "reply thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
@@ -223,37 +241,6 @@ class MeitanBot
       end
     end
     @tweeter_threads.add reply_thread
-
-    sleep 1
-
-    csharp_thread = Thread.new do
-      puts 'csharp thread start'
-      loop do
-        json = @csharp_queue.pop
-        res = reply_csharp(json['user']['screen_name'], json['id'])
-        if res === Net::HTTPForbidden
-          puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
-          puts "csharp thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
-          sleep SLEEP_WHEN_FORBIDDEN
-        end
-      end
-    end
-    @tweeter_threads.add csharp_thread
-    
-    sleep 1
-    
-    morning_greeting_thread = Thread.new do
-      puts 'morning greeting thread start'
-      loop do
-        json = @morning_greeting_queue.pop
-        res = reply_morning(json['user']['screen_name'], json['id'])
-        if res === Net::HTTPForbidden
-          puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
-          puts "morning greeting thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
-          sleep SLEEP_WHEN_FORBIDDEN
-        end
-      end
-    end
     
     sleep 1
     
@@ -460,6 +447,15 @@ class MeitanBot
   def reply_return(reply_screen_name, in_reply_to_id)
     puts 'replying to returning'
     post_reply("@#{reply_screen_name} #{random_return}", in_reply_to_id)
+  end
+
+  def reply_weather(reply_screen_name, in_reply_to_id, ahead)
+    doc = REXML::Document.new Net::HTTP.get(URI.parse(FORECAST_API_URL + '?weather=' + FORECAST_LOCATION))
+    if ahead == 0 # Get current condition
+      cond_element = doc.elements['/xml_api_reply/weather/current_conditions']
+    else # Get forecast condition
+      cond_element = doc.elements['/xml_api_reply/weather/forecast_conditions'][ahead - 1]
+    end
   end
 
   # Reply
