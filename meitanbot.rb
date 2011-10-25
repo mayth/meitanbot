@@ -849,6 +849,9 @@ class MeitanBot
 
 end
 
+open('running_host', 'w:UTF-8') do |file|
+  file.puts `echo $HOSTNAME`
+end
 
 if $0 == __FILE__
   bot = MeitanBot.new
