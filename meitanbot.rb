@@ -226,6 +226,9 @@ class MeitanBot
             elsif /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(むくり)|(^mkr$)/ =~ json['text'] and not (/^@[a-zA-Z0-9_]+/ =~ json['text'])
               puts "morning greeting detected. reply to #{json['id']}"
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :morning}))
+			elsif json['text'].include?('ぬるぽ')
+			  puts "nullpo detected. reply to #{json['id']}"
+			  @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :nullpo}))
             end # end of replying text checks
           else
             puts 'owner ignored'
@@ -254,7 +257,9 @@ class MeitanBot
           res = reply_morning(tweet.user, tweet.id)
         when :weather
           res = reply_weather(tweet.user, tweet.id, tweet.other[:ahead])
-        else
+        when :nullpo
+		  res = reply_nullpo(tweet.user, tweet.id)
+		else
           puts "undefined reply_type: #{tweet.other[:reply_type]}"
 		end
         if res === Net::HTTPForbidden
@@ -316,6 +321,7 @@ class MeitanBot
     sleep 1
 
     time_signal_thread = Thread.new do
+	  p cond
       puts 'time signal thread start'
       loop do
         t = Time.now.getutc
@@ -512,6 +518,10 @@ class MeitanBot
 	  puts "target_day: #{target_day}"
 	  post_reply(reply_to_user, in_reply_to_id, "#{target_day}（#{cond.day_of_week}曜日）の天気は#{cond.condition}、気温は最高#{cond.high}℃、最低#{cond.low}℃だよ。")
     end
+  end
+
+  def reply_nullpo(reply_to_user, in_reply_to_id)
+    post_reply(reply_to_user, in_reply_to_id, 'ｶﾞｯ')
   end
 
   # Reply
