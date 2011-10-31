@@ -197,7 +197,7 @@ class MeitanBot
       loop do
         json = @post_queue.pop
         user = json['user']
-        if json['text'].include?('#meitanbot') and user['id'] == OWNER_ID
+        if /(^#meitanbot | #meitanbot$)/ =~ json['text'] and user['id'] == OWNER_ID
           log 'Owner update the status including meitanbot hash-tag.'
           @retweet_queue.push json
         end
