@@ -104,6 +104,8 @@ class MeitanBot
   # Log file
   LOG_FILE = 'log'
 
+  TIME_TABLE = [['08:40', '09:55'], ['10:10', '11:25'], ['12:15', '13:30'], ['13:45', '15:00'], ['15:15', '16:30'], ['16:45', '18:00']]
+
   # Initialize this class.
   def initialize
     # Queue for threads
@@ -213,8 +215,26 @@ class MeitanBot
               ahead = 2
             end
             @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :weather, :ahead => ahead}))
-          elsif /^#{SCREEN_NAME} ([1-6]|[１２３４５６一二三四五六])時{0,1}限目{0,1}の時間を教えて/ =~ json['text']
+			next
+          elsif /^@#{SCREEN_NAME} ([1-6１２３４５６一二三四五六壱弐参伍])時{0,1}限目{0,1}の時間を教えて/ =~ json['text']
 		    log "Inquiry of timetable detected. reply to #{json['id']}"
+			time = 0
+			case $1
+			when '1', '１', '一', '壱'
+              time = 1
+			when '2', '２', '二', '弐'
+              time = 2
+			when '3', '３', '三', '参'
+              time = 3
+			when '4', '４', '四'
+              time = 4
+			when '5', '５', '五', '伍'
+              time = 5
+			when '6', '６', '六'
+              time = 6
+			end
+			@reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :time_inquiry, :time => time}))
+			next
 		  end # end of checking for replying text
           unless (@is_ignore_owner and user['id'] == OWNER_ID)
             if /め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん/ =~ json['text'] or json['text'].include?('#mei_tan')
@@ -263,6 +283,8 @@ class MeitanBot
           res = reply_weather(tweet.user, tweet.id, tweet.other[:ahead])
         when :nullpo
 		  res = reply_nullpo(tweet.user, tweet.id)
+		when :time_inquiry
+		  res = reply_time_inquiry(tweet.user, tweet.id, tweet.other[:time])
 		else
           log "undefined reply_type: #{tweet.other[:reply_type]}"
 		end
@@ -526,6 +548,10 @@ class MeitanBot
 
   def reply_nullpo(reply_to_user, in_reply_to_id)
     post_reply(reply_to_user, in_reply_to_id, 'ｶﾞｯ')
+  end
+
+  def reply_time_inquiry(reply_to_user, in_reply_to_id, time)
+    post_reply(reply_to_user, in_reply_to_id, "#{time}時限目は #{TIME_TABLE[time - 1][0]} から #{TIME_TABLE[time - 1][1]} までだよ。")
   end
 
   # Reply
@@ -862,10 +888,10 @@ class MeitanBot
 	  send_direct_message('inquiry<host> accepted. Meitan-bot is running at: ' + running_host, OWNER_ID) if report_by_message
 	when :kill
 	  log('command<kill> accepted. Meitan-bot will be terminated soon.', output_stdout)
-	  send_direct_message('command<kill> accepted. Meitan-bot will be terminated soon.'
+	  send_direct_message('command<kill> accepted. Meitan-bot will be terminated soon.', OWNER_ID) if report_by_message
 	  exit
     else
-      log ('unknown command received. to show help, please send help command.', output_stdout)
+      log('unknown command received. to show help, please send help command.', output_stdout)
       send_direct_message('unknown command received.', OWNER_ID) if report_by_message
     end
   end
