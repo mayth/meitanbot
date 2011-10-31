@@ -202,7 +202,7 @@ class MeitanBot
           @retweet_queue.push json
         end
 		unless IGNORE_IDS.include?(user['id'])
-          if /^@#{SCREEN_NAME} (今|明日|あさって)の天気を教えて( #[a-zA-Z0-9_]+){0,1}$/=~ json['text']
+          if /^@#{SCREEN_NAME} (今|明日|あさって)の天気を教えて$/=~ json['text']
             log "Inquiry of weather detected. reply to #{json['id']}"
             p $1 
 			ahead = 0
@@ -216,7 +216,7 @@ class MeitanBot
             end
             @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :weather, :ahead => ahead}))
 			next
-          elsif /^@#{SCREEN_NAME} ([1-6１２３４５６一二三四五六壱弐参伍])時{0,1}限目{0,1}の時間を教えて/ =~ json['text']
+          elsif /^@#{SCREEN_NAME} ([1-6１２３４５６一二三四五六壱弐参伍])時{0,1}限目{0,1}の時間を教えて$/ =~ json['text']
 		    log "Inquiry of timetable detected. reply to #{json['id']}"
 			time = 0
 			case $1
