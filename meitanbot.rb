@@ -101,6 +101,8 @@ class MeitanBot
   STAT_INTERVAL = 60
   # Statistics output file
   STAT_FILE = 'statistics.log'
+  # Log file
+  LOG_FILE = 'log'
 
   # Initialize this class.
   def initialize
@@ -186,20 +188,20 @@ class MeitanBot
 
   # Start bot
   def run
-    puts 'run!'
+    log 'run!'
 
     post_thread = Thread.new do
-      puts 'post thread start'
+      log 'post thread start'
       loop do
         json = @post_queue.pop
         user = json['user']
         if json['text'].include?('#meitanbot') and user['id'] == OWNER_ID
-          puts 'Owner update the status including meitanbot hash-tag.'
+          log 'Owner update the status including meitanbot hash-tag.'
           @retweet_queue.push json
         end
 		unless IGNORE_IDS.include?(user['id'])
           if /^@#{SCREEN_NAME} (今|明日|あさって)の天気を教えて( #[a-zA-Z0-9_]+){0,1}$/=~ json['text']
-            puts "Inquiry of weather detected. reply to #{json['id']}"
+            log "Inquiry of weather detected. reply to #{json['id']}"
             p $1 
 			ahead = 0
             case $1
@@ -211,30 +213,32 @@ class MeitanBot
               ahead = 2
             end
             @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :weather, :ahead => ahead}))
+          elsif /^#{SCREEN_NAME} ([1-6]|[１２３４５６一二三四五六])時{0,1}限目{0,1}の時間を教えて/ =~ json['text']
+		    log "Inquiry of timetable detected. reply to #{json['id']}"
 		  end # end of checking for replying text
           unless (@is_ignore_owner and user['id'] == OWNER_ID)
             if /め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん/ =~ json['text'] or json['text'].include?('#mei_tan')
-              puts "meitan detected. reply to #{json['id']}"
+              log "meitan detected. reply to #{json['id']}"
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :meitan}))
             elsif /^@#{SCREEN_NAME}/ =~ json['text']
               @statistics[:reply_received_count] += 1
-              puts "reply detected. reply to #{json['id']}"
+              log "reply detected. reply to #{json['id']}"
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :normal_reply}))
             elsif /.*C#.*/ =~ json['text']
-              puts "C# detected. reply to #{json['id']}"
+              log "C# detected. reply to #{json['id']}"
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :csharp}))
             elsif /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(むくり)|(^mkr$)/ =~ json['text'] and not (/^@[a-zA-Z0-9_]+/ =~ json['text'])
-              puts "morning greeting detected. reply to #{json['id']}"
+              log "morning greeting detected. reply to #{json['id']}"
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :morning}))
-			elsif json['text'].include?('ぬるぽ')
-			  puts "nullpo detected. reply to #{json['id']}"
-			  @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :nullpo}))
+            elsif json['text'].include?('ぬるぽ')
+              log "nullpo detected. reply to #{json['id']}"
+              @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :nullpo}))
             end # end of replying text checks
           else
-            puts 'owner ignored'
+            log 'owner ignored'
           end # end of unless block (ignoring owner)
         else
-		  puts "ignore list includes id:#{user['id']}. ignored."
+		  log "ignore list includes id:#{user['id']}. ignored."
 		end # end of unless block (ignoring IGNORE_IDS)
       end # end of loopd
     end # end of Thread
@@ -242,10 +246,10 @@ class MeitanBot
     sleep 1
 
     reply_thread = Thread.new do
-      puts 'reply thread start'
+      log 'reply thread start'
       loop do
         tweet = @reply_queue.pop
-		puts "tweet: text=#{tweet.text}, other=#{tweet.other.inspect}"
+		log "tweet: text=#{tweet.text}, other=#{tweet.other.inspect}"
         case tweet.other[:reply_type]
         when :meitan
           res = reply_meitan(tweet.user, tweet.id)
@@ -260,11 +264,11 @@ class MeitanBot
         when :nullpo
 		  res = reply_nullpo(tweet.user, tweet.id)
 		else
-          puts "undefined reply_type: #{tweet.other[:reply_type]}"
+          log "undefined reply_type: #{tweet.other[:reply_type]}"
 		end
         if res === Net::HTTPForbidden
-          puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
-          puts "reply thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
+          log "returned 403 Forbidden. Considering status duplicate, or rate limit."
+          log "reply thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
           sleep SLEEP_WHEN_FORBIDDEN
         end
       end
@@ -273,13 +277,13 @@ class MeitanBot
     sleep 1
     
     retweet_thread = Thread.new do
-      puts 'retweet thread start'
+      log 'retweet thread start'
       loop do
         json = @retweet_queue.pop
         res = retweet(json['id'])
         if res === Net::HTTPForbidden
-          puts "returned 403 Forbidden. Considering status duplicate, or rate limit."
-          puts "retweet thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
+          log "returned 403 Forbidden. Considering status duplicate, or rate limit."
+          log "retweet thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
           sleep SLEEP_WHEN_FORBIDDEN
         end
       end
@@ -288,12 +292,12 @@ class MeitanBot
     sleep 1
 
     event_thread = Thread.new do
-      puts 'event thread start'
+      log 'event thread start'
       loop do
         json = @event_queue.pop
         case json['event'].to_sym
         when :follow
-          puts "new follower: id:#{json['source']['id']}, screen_name:@#{json['source']['screen_name']}"
+          log "new follower: id:#{json['source']['id']}, screen_name:@#{json['source']['screen_name']}"
           follow_user json['source']['id']
         end
       end
@@ -302,14 +306,14 @@ class MeitanBot
     sleep 1
 
     message_thread = Thread.new do
-      puts 'message thread start'
+      log 'message thread start'
       loop do
         json = @message_queue.pop
-        puts 'Message received.'
+        log 'Message received.'
         sender = json['direct_message']['sender']
         text = json['direct_message']['text'].strip
         if sender['id'] == OWNER_ID && text.start_with?('cmd ')
-          puts "Received Command Message"
+          log "Received Command Message"
 		  cmd_ary = text.split
 		  cmd_ary.shift
 		  cmd = cmd_ary.shift
@@ -322,7 +326,7 @@ class MeitanBot
 
     time_signal_thread = Thread.new do
 	  p cond
-      puts 'time signal thread start'
+      log 'time signal thread start'
       loop do
         t = Time.now.getutc
         if t.min == 0
@@ -340,7 +344,7 @@ class MeitanBot
     sleep 1
 
     friendship_check_thread = Thread.new do
-      puts 'friendship check thread start'
+      log 'friendship check thread start'
       loop do
         follow_unfollowing_user
         remove_removed_user
@@ -352,7 +356,7 @@ class MeitanBot
 
     receiver_thread = Thread.new do
       begin
-        puts "receiver thread start"
+        log "receiver thread start"
         total_retry_count = 0
         retry_count = 0
         loop do
@@ -370,24 +374,24 @@ class MeitanBot
               end
             end
           rescue Timeout::Error, StandardError
-            puts '<RESCUE> SConnection to Twitter is disconnected or Application error was occured.'
+            log '<RESCUE> SConnection to Twitter is disconnected or Application error was occured.'
             @statistics[:total_retry_count] += 1
             if (retry_count < MAX_CONTINUATIVE_RETRY_COUNT)
               retry_count += 1
-              puts $!
-              puts("<RESCUE> retry:#{retry_count}")
+              log $!
+              log("<RESCUE> retry:#{retry_count}")
               sleep SHORT_RETRY_INTERVAL
-              puts 'retry!'
+              log 'retry!'
             else
-              puts '<RESCUE> Continuative retry was failed. Receiver will sleep long...'
+              log '<RESCUE> Continuative retry was failed. Receiver will sleep long...'
               sleep LONG_RETRY_INTERVAL
               retry_count = 0
-              puts 'retry!'
+              log 'retry!'
             end
           end
         end
       ensure
-        puts 'receiver thread terminated.'
+        log 'receiver thread terminated.'
         post "Terminating meitan-bot Bye! #{Time.now.strftime("%X")}"
       end
     end
@@ -396,12 +400,12 @@ class MeitanBot
     
     statistics_thread = Thread.new do
       begin
-        puts 'statistics thread start'
+        log 'statistics thread start'
         before_time = Time.now
-        puts "<STAT> Meitan-bot statistics thread started at #{Time.now.strftime("%X")}"
+        log "<STAT> Meitan-bot statistics thread started at #{Time.now.strftime("%X")}"
         loop do
           current_time = Time.now
-          puts "<STAT> Statistics at #{current_time.to_s}"
+          log "<STAT> Statistics at #{current_time.to_s}"
           @tweet_request_time.compact!
           total = 0.0
           for t in @tweet_request_time
@@ -409,10 +413,10 @@ class MeitanBot
           end
           @statistics[:tweet_request_time_average] = total / @statistics[:post_count]
           @statistics.to_s.lines do |line|
-            puts "<STAT> #{line}"
+            log "<STAT> #{line}"
           end
           if (current_time.min % 10) == 0
-            puts 'output log'
+            log 'output log'
             out = { current_time.strftime('%F_%H:%M') => @statistics }
             open(STAT_FILE, 'a:UTF-8') do |file|
               file << out.to_yaml
@@ -421,7 +425,7 @@ class MeitanBot
           sleep STAT_INTERVAL
         end
       ensure
-        puts "<STAT> Meitan-bot statistics thread terminated at #{Time.now.strftime("%X")}"
+        log "<STAT> Meitan-bot statistics thread terminated at #{Time.now.strftime("%X")}"
       end
     end
     
@@ -429,61 +433,61 @@ class MeitanBot
 
     tweet_greeting
     
-    puts 'startup complete.'
+    log 'startup complete.'
   end # end of run method
 
   # Tweet the greeting post when bot is started.
   def tweet_greeting
-    puts "greeting"
+    log "greeting"
     post "Starting meitan-bot. Hello! #{Time.now.strftime('%X')}"
   end
 
   # Tweet the time signal post.
   def post_time_signal(hour)
-    puts "time signal: #{hour}"
+    log "time signal: #{hour}"
     post "#{hour}時(TST)をお知らせします。"
   end
 
   # Tweet "I'm not meitan!"
   def reply_meitan(reply_to_user, in_reply_to_id)
-    puts "replying to meitan"
+    log "replying to meitan"
     post_reply(reply_to_user, in_reply_to_id, random_notmeitan)
   end
 
   # Reply to reply to me
   def reply_mention(reply_to_user, in_reply_to_id)
-    puts "replying to mention"
+    log "replying to mention"
     post_reply(reply_to_user, in_reply_to_id, random_mention)
   end
 
   # Reply to the post containing "C#"
   def reply_csharp(reply_to_user, in_reply_to_id)
-    puts "replying to csharp"
+    log "replying to csharp"
     post_reply(reply_to_user, in_reply_to_id, random_csharp)
   end
   
   def reply_morning(reply_to_user, in_reply_to_id)
-    puts 'replying to morning greeting'
+    log 'replying to morning greeting'
     post_reply(reply_to_user, in_reply_to_id, random_morning)
   end
 
   def reply_departure(reply_to_user, in_reply_to_id)
-    puts 'replying to departure'
+    log 'replying to departure'
     post_reply(reply_to_user, in_reply_to_id, random_departure)
   end
   
   def reply_return(reply_to_user, in_reply_to_id)
-    puts 'replying to returning'
+    log 'replying to returning'
     post_reply(reply_to_user, in_reply_to_id, random_return)
   end
 
   def reply_weather(reply_to_user, in_reply_to_id, ahead)
     raise ArgumentError if ahead < 0 or 4 < ahead
-	puts 'replying to weather inquiry'
+	log 'replying to weather inquiry'
 	doc = REXML::Document.new(Net::HTTP.get(URI.parse(FORECAST_API_URL + '?weather=' + FORECAST_LOCATION + '&hl=ja')).toutf8)
-    puts 'doc generated.'
+    log 'doc generated.'
 	if ahead == 0 # Get current condition
-      puts 'get current conditions'
+      log 'get current conditions'
 	  cond_element = doc.elements['/xml_api_reply/weather/current_conditions']
 	  p cond_element
 	  cond = CurrentWeather.new(
@@ -491,10 +495,10 @@ class MeitanBot
         cond_element.elements['temp_c'].attributes['data'],
 		cond_element.elements['humidity'].attributes['data'],
 		cond_element.elements['wind'].attributes['data'])
-	  puts "cond: condition=#{cond.condition}, temp=#{cond.temp}, humidity=#{cond.humidity}, wind=#{cond.wind}"
+	  log "cond: condition=#{cond.condition}, temp=#{cond.temp}, humidity=#{cond.humidity}, wind=#{cond.wind}"
 	  post_reply(reply_to_user, in_reply_to_id, "今の天気は#{cond.condition}、気温#{cond.temp}℃、湿度#{cond.humidity}、風は#{cond.wind}だよ。")
     else # Get forecast condition
-      puts 'get forecast condition'
+      log 'get forecast condition'
 	  cond_element = doc.elements['/xml_api_reply/weather/forecast_conditions[' + String(ahead) + ']']
 	  cond = ForecastWeather.new(
 	    cond_element.elements['condition'].attributes['data'],
@@ -507,15 +511,15 @@ class MeitanBot
       when 2
 	    target_day = 'あさって'
       else
-        puts 'unknown ahead value'
+        log 'unknown ahead value'
 	    raise ArgumentError
 	  end
-	  puts "cond:"
-	  puts " condition=#{cond.condition}"
-	  puts " temp=#{String(cond.temp)}"
-	  puts " humidity=#{String(cond.humidity)}"
-	  puts " wind=#{String(cond.wind)}"
-	  puts "target_day: #{target_day}"
+	  log "cond:"
+	  log " condition=#{cond.condition}"
+	  log " temp=#{String(cond.temp)}"
+	  log " humidity=#{String(cond.humidity)}"
+	  log " wind=#{String(cond.wind)}"
+	  log "target_day: #{target_day}"
 	  post_reply(reply_to_user, in_reply_to_id, "#{target_day}（#{cond.day_of_week}曜日）の天気は#{cond.condition}、気温は最高#{cond.high}℃、最低#{cond.low}℃だよ。")
     end
   end
@@ -529,7 +533,7 @@ class MeitanBot
     if @is_enabled_posting
       @statistics[:post_count] += 1
       @statistics[:reply_count] += 1
-      puts "replying"
+      log "replying"
       req_start = Time.now
       @access_token.post('https://api.twitter.com/1/statuses/update.json',
         'status' => "@#{reply_to_user.screen_name} " + status,
@@ -537,7 +541,7 @@ class MeitanBot
       req_end = Time.now
       @tweet_request_time << req_end - req_start
     else
-      puts "posting function is now disabled because @is_enabled_posting is false."
+      log "posting function is now disabled because @is_enabled_posting is false."
     end
   end
 
@@ -545,21 +549,21 @@ class MeitanBot
   def post(status)
     if @is_enabled_posting
       @statistics[:post_count] += 1
-      puts "posting"
+      log "posting"
       req_start = Time.now
       res = @access_token.post('https://api.twitter.com/1/statuses/update.json',
         'status' => status)
       req_end = Time.now
       @tweet_request_time << req_end - req_start
     else
-      puts "posting function is now disabled because @is_enabled_posting is false."
+      log "posting function is now disabled because @is_enabled_posting is false."
     end
   end
 
   # Retweet the status
   def retweet(id)
     @statistics[:post_count] += 1
-    puts "retweeting status-id: #{id}"
+    log "retweeting status-id: #{id}"
     req_start = Time.now
     @access_token.post("https://api.twitter.com/1/statuses/retweet/#{id}.json")
     req_end = Time.now
@@ -569,7 +573,7 @@ class MeitanBot
   # Send Direct Message
   def send_direct_message(text, recipient_id)
     @statistics[:send_message_count] += 1
-    puts "Sending Direct Message"
+    log "Sending Direct Message"
     @access_token.post('https://api.twitter.com/1/direct_messages/new.json',
       'user_id' => recipient_id,
       'text' => text)
@@ -578,7 +582,7 @@ class MeitanBot
   # Follow the user
   def follow_user(id)
     unless id == MY_ID
-      puts "following user: #{id}"
+      log "following user: #{id}"
       @access_token.post('https://api.twitter.com/1/friendships/create.json',
         'user_id' => id)
     end
@@ -587,7 +591,7 @@ class MeitanBot
   # Remove the user
   def remove_user(id)
     unless id == MY_ID
-      puts "removing user: #{id}"
+      log "removing user: #{id}"
       @access_token.post('https://api.twitter.com/1/friendships/destroy.json',
         'user_id' => id)
     end
@@ -624,7 +628,7 @@ class MeitanBot
 
   # Get followers
   def get_followers(cursor = '-1')
-    puts "get_followers: cursor=#{cursor}"
+    log "get_followers: cursor=#{cursor}"
     result = []
     if (cursor != '0')
       res = @access_token.get('https://api.twitter.com/1/followers/ids.json',
@@ -639,7 +643,7 @@ class MeitanBot
 
   # Get followings
   def get_followings(cursor = '-1')
-    puts "get_followings: cursor=#{cursor}"
+    log "get_followings: cursor=#{cursor}"
     result = []
     if (cursor != '0')
       res = @access_token.get('https://api.twitter.com/1/friends/ids.json',
@@ -661,9 +665,9 @@ class MeitanBot
     followings = get_followings
     need_to_follow = followers - followings
 
-    puts "need to follow: "
+    log "need to follow: "
     for id in need_to_follow do
-      puts " #{id}"
+      log " #{id}"
     end
 
     for id in need_to_follow do
@@ -680,9 +684,9 @@ class MeitanBot
     followings = get_followings
     need_to_remove = followings - followers
 
-    puts 'need to remove: '
+    log 'need to remove: '
     for id in need_to_remove do
-      puts " #{id}"
+      log " #{id}"
     end
 
     for id in need_to_remove do
@@ -718,29 +722,29 @@ class MeitanBot
       @reply_return_text = file.readlines.collect{|line| line.strip}
     end
 
-    puts 'notmeitan text:'
+    log 'notmeitan text:'
     for s in @notmeitan_text do
-      puts ' ' + s
+      log ' ' + s
     end
 
-    puts 'reply text:'
+    log 'reply text:'
     for s in @reply_mention_text do
-      puts ' ' + s
+      log ' ' + s
     end
 
-    puts 'reply csharp text:'
+    log 'reply csharp text:'
     for s in @reply_csharp_text do
-      puts ' ' + s
+      log ' ' + s
     end
     
-    puts 'reply departure text:'
+    log 'reply departure text:'
     for s in @reply_departure_text do
-      puts ' ' + s
+      log ' ' + s
     end
 
-    puts 'reply returning text:'
+    log 'reply returning text:'
     for s in @reply_return_text do
-      puts ' ' + s
+      log ' ' + s
     end
   end
   
@@ -748,8 +752,8 @@ class MeitanBot
   # _cemmand_ is command symbol.
   # _params_ is command parameters. Parameters is array.
   # If _report_by_message is true, report the command result by sending direct message to owner. By default, this is true.
-  def control_command(command, params, report_by_message = true)
-    puts "control_command: #{command}"
+  def control_command(command, params, report_by_message = true, output_stdout = false)
+    log "control_command: #{command}"
     raise ArgumentError unless params.is_a?(Array)
 	case command
     when :is_ignore_owner
@@ -760,15 +764,15 @@ class MeitanBot
         when :false
           @is_ignore_owner = false
         else
-          puts 'unknown value'
+          log('unknown value', output_stdout)
         end
       else
-        puts 'no param'
+        log('no param', output_stdout)
       end
-      puts "command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}"
+      log("command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}", output_stdout)
       send_direct_message("command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}", OWNER_ID) if report_by_message
     when :is_ignore_owner?
-      puts "inquiry<is_ignore_owner> accepted. current value is #{@is_ignore_owner}"
+      log("inquiry<is_ignore_owner> accepted. current value is #{@is_ignore_owner}", output_stdout)
       send_direct_message("inquiry<is_ignore_owner> accepted. current value is #{@is_ignore_owner}", OWNER_ID) if report_by_message
     when :is_enable_posting
       if params[0]
@@ -778,30 +782,30 @@ class MeitanBot
         when :false
           @is_enabled_posting = false
         else
-          puts 'unknown value'
+          log('unknown value', output_stdout)
         end
       else
-        puts 'no param'
+        log('no param', output_stdout)
       end
-      puts "command<is_enable_posting> accepted. current value is #{@is_enabled_posting}"
+      log("command<is_enable_posting> accepted. current value is #{@is_enabled_posting}", output_stdout)
       send_direct_message("command<is_enable_posting> accepted. current value is #{@is_enabled_posting}", OWNER_ID) if report_by_message
     when :is_enable_posting?
-      puts "inquiry<is_enable_posting> accepted. current value is #{@is_enabled_posting}"
+      log("inquiry<is_enable_posting> accepted. current value is #{@is_enabled_posting}", output_stdout)
       send_direct_message("inquiry<is_enable_posting> accepted. current value is #{@is_enabled_posting}", OWNER_ID) if report_by_message
     when :show_post_text_count
-      puts "command<show_post_text_count> accepted. meitan:#{@notmeitan_text.size}, reply:#{@reply_mention_text.size}, csharp:#{@reply_csharp_text.size}"
+      log("command<show_post_text_count> accepted. meitan:#{@notmeitan_text.size}, reply:#{@reply_mention_text.size}, csharp:#{@reply_csharp_text.size}", output_stdout)
       send_direct_message("command<show_post_text_count> accepted. meitan:#{@notmeitan_text.size}, reply:#{@reply_mention_text.size}, csharp:#{@reply_csharp_text.size}", OWNER_ID) if report_by_message
     when :reload_post_text
       read_post_text_files
-      puts "command<reload_post_text> accepted. meitan:#{@notmeitan_text.size}, reply:#{@reply_mention_text.size}, csharp:#{@reply_csharp_text.size}"
+      log("command<reload_post_text> accepted. meitan:#{@notmeitan_text.size}, reply:#{@reply_mention_text.size}, csharp:#{@reply_csharp_text.size}", output_stdout)
       send_direct_message("command<reload_post_text> accepted. meitan:#{@notmeitan_text.size}, reply:#{@reply_mention_text.size}, csharp:#{@reply_csharp_text.size}", OWNER_ID) if report_by_message
     when :ignore_user
-      log = "command<ignore_user> accepted."
+      logstr = "command<ignore_user> accepted."
       id = 0
       begin
         id = Integer(params[1])
       rescue
-        puts 'ID Conversion failure. Try to get ID from string'
+        log('ID Conversion failure. Try to get ID from string', output_stdout)
         begin
           screen_name = String(params[1])
           res = @access_token.post('http://api.twitter.com/1/users/lookup.json', 'screen_name' => screen_name)
@@ -810,7 +814,7 @@ class MeitanBot
             id = json['id'] if json['screen_name'] == screen_name
           end
         rescue
-          puts 'String conversion / Get the ID from Screen Name failure.'
+          log('String conversion / Get the ID from Screen Name failure.', output_stdout)
         end
       end
       unless id == 0
@@ -819,44 +823,69 @@ class MeitanBot
           when :add
             unless IGNORE_IDS.include?(id)
               IGNORE_IDS.concat id
-              log += " added #{id}"
+              logstr += " added #{id}"
             end
           when :remove
             if IGNORE_IDS.include?(id)
               IGNORE_IDS.delete id
-              log += " removed #{id}"
+              logstr += " removed #{id}"
             end
           end
         else
-          puts 'no param'
+          log('no param', output_stdout)
         end
       else
-        puts 'ID is 0'
+        log('ID is 0', output_stdout)
       end
-      log += " current ignoring users: #{IGNORE_IDS.size}"
-      puts log
-      send_direct_message(log, OWNER_ID) if report_by_message
+      logstr += " current ignoring users: #{IGNORE_IDS.size}"
+      log(logstr, output_stdout)
+      send_direct_message(logstr, OWNER_ID) if report_by_message
     when :check_friendships
       follow_unfollowing_user
       users = remove_removed_user
-      puts "command<check_friendships> accepted. current followings: #{users}"
+      log("command<check_friendships> accepted. current followings: #{users}", output_stdout)
     when :show_friendships
       followings = get_followings
       followers = get_followers
-      puts "inquiry<show_friendships> accepted. followings/followers=#{followings.size}/#{followers.size}"
+      log("inquiry<show_friendships> accepted. followings/followers=#{followings.size}/#{followers.size}", output_stdout)
       send_direct_message("inquiry<show_friendships> accepted. followings/followers=#{followings.size}/#{followers.size}", OWNER_ID) if report_by_message
     when :help
-      puts "inquiry<help> accepted. Available commands: is_ignore_owner(?), is_enable_posting(?), reload_post_text, ignore_user."
+      log("inquiry<help> accepted. Available commands: is_ignore_owner(?), is_enable_posting(?), reload_post_text, ignore_user.", output_stdout)
       send_direct_message("This function is only available on command-line.", OWNER_ID) if report_by_message
     when :ping
-      puts 'inquiry<ping> accepted. Meitan-bot is alive! ' + Time.now.to_s
+      log('inquiry<ping> accepted. Meitan-bot is alive! ' + Time.now.to_s, output_stdout)
       send_direct_message("inquiry<ping> accepted. Meitan-bot is alive! #{Time.now.to_s}", OWNER_ID) if report_by_message
+	when :host
+	  running_host = 'unknown'
+	  open('running_host', 'r:UTF-8') {|file| running_host = file.gets} if File.exist?('running_host')
+	  log('inquiry<host> accepted. Meitan-bot is running at: ' + running_host, output_stdout)
+	  send_direct_message('inquiry<host> accepted. Meitan-bot is running at: ' + running_host, OWNER_ID) if report_by_message
+	when :kill
+	  log('command<kill> accepted. Meitan-bot will be terminated soon.', output_stdout)
+	  send_direct_message('command<kill> accepted. Meitan-bot will be terminated soon.'
+	  exit
     else
-      puts 'unknown command received. to show help, please send help command.'
+      log ('unknown command received. to show help, please send help command.', output_stdout)
       send_direct_message('unknown command received.', OWNER_ID) if report_by_message
     end
   end
 
+  def log(s, is_put_display = false)
+    log_str = '[' + Time.now.strftime('%F_%T%z') + '] ' + String(s)
+	open(LOG_FILE, 'a:UTF-8') do |file|
+      file.puts log_str
+	end
+	puts log_str if is_put_display
+  end
+
+  private :connect, :tweet_greeting, :post_time_signal
+  private :reply_meitan, :reply_mention, :reply_csharp, :reply_morning
+  private :reply_departure, :reply_return, :reply_weather, :reply_nullpo
+  private :post, :post_reply, :retweet, :send_direct_message, :follow_user, :remove_user
+  private :random_notmeitan, :random_mention, :random_csharp
+  private :random_morning, :random_departure, :random_return
+  private :get_followers, :get_followings, :follow_unfollowing_user, :remove_removed_user
+  private :read_post_text_files, :log
 end
 
 open('running_host', 'w:UTF-8') do |file|
@@ -867,7 +896,7 @@ if $0 == __FILE__
   bot = MeitanBot.new
   bot.run
 
-  command_line_vars = {is_report_enabled: false}
+  command_line_vars = {is_report_message_enabled: false, is_show_result_enabled: false}
 
   loop do
     print 'meitan-bot> '  
@@ -882,17 +911,27 @@ if $0 == __FILE__
       if cmd_ary[1]
         case cmd_ary[1].to_sym
         when :true
-          command_line_vars[:is_report_enabled] = true
+          command_line_vars[:is_report_message_enabled] = true
         when :false
-          command_line_vars[:is_report_enabled] = false
+          command_line_vars[:is_report_message_enabled] = false
         end
       end
-      puts "Report by Direct Message: #{command_line_vars[:is_report_enabled]}"
-    when :exit, :quit
+      log "Report by Direct Message: #{command_line_vars[:is_report_enabled]}"
+	when :is_show_result_enabled
+      if cmd_ary[1]
+        case cmd_ary[1].to_sym
+        when :true
+          command_line_vars[:is_show_result_enabled] = true
+        when :false
+          command_line_vars[:is_show_result_enabled] = false
+        end
+      end
+	  log "Show Result: #{command_line_vars[:is_show_result_enabled]}"
+    when :exit, :quit, :kill
       break
     else
       param = cmd_ary[1] ? cmd_ary[1].split : []
-      bot.control_command(cmd_ary[0].to_sym, param, command_line_vars[:is_report_enabled])
+      bot.control_command(cmd_ary[0].to_sym, param, command_line_vars[:is_report_enabled], command_line_vars[:is_show_result_enabled])
     end
   end
 end
