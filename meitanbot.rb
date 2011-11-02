@@ -252,7 +252,7 @@ class MeitanBot
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :morning}))
             elsif /((い|行)ってきまー?すー?)|(いてきまー)|(出発)|(でっぱつ)/ =~ json['text']
 			  log "departure detected. reply to #{json['id']}"
-              @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name'), {:reply_type => :departure}))
+              @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :departure}))
             elsif /(ただいま|帰宅)/ =~ json['text']
               log "returning detected. reply to #{json['id']}"
 			  @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :returning}))
