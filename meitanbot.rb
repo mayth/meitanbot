@@ -247,7 +247,7 @@ class MeitanBot
             elsif /.*C#.*/ =~ json['text']
               log "C# detected. reply to #{json['id']}"
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :csharp}))
-            elsif /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(むくり)|(^mkr$)/ =~ json['text'] and not (/^@[a-zA-Z0-9_]+/ =~ json['text'])
+            elsif /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(むくり)|(^mkr$)/ =~ json['text'] and not (/@[a-zA-Z0-9_]+/ =~ json['text'])
               log "morning greeting detected. reply to #{json['id']}"
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :morning}))
             elsif json['text'].include?('ぬるぽ')
