@@ -216,7 +216,7 @@ class MeitanBot
             end
             @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :weather, :ahead => ahead}))
 			next
-          elsif /^@#{SCREEN_NAME} ([1-6１２３４５６一二三四五六壱弐参伍])時{0,1}限目{0,1}の時間を教えて$/ =~ json['text']
+          elsif /^@#{SCREEN_NAME} ([1-6１２３４５６一二三四五六壱弐参伍])時{0,1}限目{0,1}(の時間を教えて)?$/ =~ json['text']
 		    log "Inquiry of timetable detected. reply to #{json['id']}"
 			time = 0
 			case $1
