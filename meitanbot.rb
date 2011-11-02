@@ -250,6 +250,12 @@ class MeitanBot
             elsif /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(^(むくり|mkr)$)/ =~ json['text'] and not (/@[a-zA-Z0-9_]+/ =~ json['text'])
               log "morning greeting detected. reply to #{json['id']}"
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :morning}))
+            elsif /((い|行)ってきまー?すー?)|(いてきまー)|(出発)|(でっぱつ)/ =~ json['text']
+			  log "departure detected. reply to #{json['id']}"
+              @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name'), {:reply_type => :departure}))
+            elsif /(ただいま|帰宅)/ =~ json['text']
+              log "returning detected. reply to #{json['id']}"
+			  @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :returning}))
             elsif json['text'].include?('ぬるぽ')
               log "nullpo detected. reply to #{json['id']}"
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :nullpo}))
@@ -279,7 +285,11 @@ class MeitanBot
           res = reply_csharp(tweet.user, tweet.id)
         when :morning
           res = reply_morning(tweet.user, tweet.id)
-        when :weather
+        when :returning
+		  res = reply_return(tweet.user, tweet.id)
+        when :departure
+          res = reply_departure(tweet.user, tweet.id)
+		when :weather
           res = reply_weather(tweet.user, tweet.id, tweet.other[:ahead])
         when :nullpo
 		  res = reply_nullpo(tweet.user, tweet.id)
