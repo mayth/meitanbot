@@ -368,6 +368,7 @@ class MeitanBot
     friendship_check_thread = Thread.new do
       log 'friendship check thread start'
       loop do
+	    log 'check friendship'
         follow_unfollowing_user
         remove_removed_user
         sleep(60 * 60 * 12) # sleep half a day
@@ -870,6 +871,7 @@ class MeitanBot
       follow_unfollowing_user
       users = remove_removed_user
       log("command<check_friendships> accepted. current followings: #{users}", output_stdout)
+	  send_direct_message("command<check_friendships> accepted. current followings: #{users}", output_stdout)
     when :show_friendships
       followings = get_followings
       followers = get_followers
@@ -942,7 +944,7 @@ if $0 == __FILE__
           command_line_vars[:is_report_message_enabled] = false
         end
       end
-      log "Report by Direct Message: #{command_line_vars[:is_report_enabled]}"
+      puts "Report by Direct Message: #{command_line_vars[:is_report_enabled]}"
 	when :is_show_result_enabled
       if cmd_ary[1]
         case cmd_ary[1].to_sym
@@ -952,7 +954,7 @@ if $0 == __FILE__
           command_line_vars[:is_show_result_enabled] = false
         end
       end
-	  log "Show Result: #{command_line_vars[:is_show_result_enabled]}"
+	  puts "Show Result: #{command_line_vars[:is_show_result_enabled]}"
     when :exit, :quit, :kill
       break
     else
