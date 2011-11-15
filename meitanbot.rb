@@ -408,7 +408,7 @@ class MeitanBot
         loop do
           begin
             connect do |json|
-              if json['text']
+              if json['text'] and not json['retweeted_status']
                 @statistics[:post_received_count] += 1
                 @post_queue.push json
               elsif json['event']
