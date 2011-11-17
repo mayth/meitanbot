@@ -100,6 +100,10 @@ class MeitanBot
   MY_ID = 323080975
   # Twitter IDs to ignore
   IGNORE_IDS = [MY_ID]
+  # Reply checking interval
+  REPLY_LIMIT_RESET_TIME = 60
+  # Reply limit threshold
+  REPLY_LIMIT_THRESHOLD = 10
   # Sleeping time when Twitter API returns 403(Forbidden)
   SLEEP_WHEN_FORBIDDEN = 600
   # Interval time for statistics
@@ -120,6 +124,8 @@ class MeitanBot
     @event_queue = Queue.new
     @message_queue = Queue.new
     @log_queue = Queue.new
+
+    @replied_count = Hash.new
 
     ## Statistics
     # Required time for status update request.
@@ -296,6 +302,18 @@ class MeitanBot
       log 'reply thread start'
       loop do
         tweet = @reply_queue.pop
+		unless @replied_count[tweet.user.id]
+          @replied_count[tweet.user.id] = {reset_time: Time.now + REPLY_LIMIT_RESET_TIME, count: 0}
+        end
+        @replied_count[tweet.user.id][:count] += 1
+        if @replied_count[tweet.user.id][:count] > REPLY_LIMIT_THRESHOLD
+          if @replied_count[tweet.user.id][:reset_time] < Time.now
+            @replied_count[tweet.user.id] = {reset_time: Time.now + REPLY_LIMIT_RESET_TIME, count: 0}
+          else
+            log "user:#{tweet.user.name}(#{tweet.user.id}) exceeds reply limit! suspend!"
+            IGNORE_IDS << tweet.user.id
+          end
+        end
         case tweet.other[:reply_type]
         when :meitan
           res = reply_meitan(tweet.user, tweet.id)
