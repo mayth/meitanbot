@@ -56,6 +56,9 @@ class ForecastWeather
 end
 
 class MeitanBot
+  # Log file prefix
+  LOG_FILE_PREFIX = "log_"
+
   # YAML-File including credential data
   CREDENTIAL_FILE = 'credential.yaml'
   # Text for replying "not-meitan"
@@ -101,10 +104,8 @@ class MeitanBot
   SLEEP_WHEN_FORBIDDEN = 600
   # Interval time for statistics
   STAT_INTERVAL = 60
-  # Statistics output file
-  STAT_FILE = 'statistics.log'
-  # Log file
-  LOG_FILE = 'log'
+  # Statistics output file prefix
+  STAT_FILE_PREFIX = 'statistics_'
 
   TIME_TABLE = [['08:40', '09:55'], ['10:10', '11:25'], ['12:15', '13:30'], ['13:45', '15:00'], ['15:15', '16:30'], ['16:45', '18:00']]
 
@@ -469,7 +470,7 @@ class MeitanBot
           if (current_time.min % 10) == 0
             log 'output log'
             out = { current_time.strftime('%F_%H:%M') => @statistics }
-            open(STAT_FILE, 'a:UTF-8') do |file|
+            open(STAT_FILE_PREFIX + Time.now.strftime('%Y%m%d'), 'a:UTF-8') do |file|
               file << out.to_yaml
             end
           end
@@ -945,7 +946,7 @@ class MeitanBot
   end
 
   def write_log(s)
-    open(LOG_FILE, 'a:UTF-8') do |file|
+    open(LOG_FILE_PREFIX + Time.now.strftime('%Y%m%d'), 'a:UTF-8') do |file|
       file.puts s
 	end
   end
