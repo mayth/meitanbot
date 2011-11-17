@@ -1,2 +1,7 @@
 /credential.yaml
 /doc
+*~
+*.swp
+*.log
+log_*
+statistics_*
