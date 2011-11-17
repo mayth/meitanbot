@@ -70,6 +70,8 @@ class MeitanBot
   REPLY_DEPARTURE_FILE = 'reply_departure.txt'
   # Text for replying returning posts
   REPLY_RETURN_FILE = 'reply_return.txt'
+  # Text for replying sleeping posts
+  REPLY_SLEEPING_FILE = 'reply_sleeping.txt'
   # HTTPS Certificate file
   HTTPS_CA_FILE = 'certificate.crt'
 
@@ -262,6 +264,10 @@ class MeitanBot
                 log "morning greeting detected. reply to #{json['id']}"
                 @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :morning}))
               end
+              if /(おやすみ(なさい)ー?)|(寝る)/ =~ json['text']
+                log "sleeping detected. reply to #{json['id']}"
+                @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :sleeping}))
+              end
               if /((い|行)ってきまー?すー?)|(いてきまー)|(出発)|(でっぱつ)/ =~ json['text']
 			    log "departure detected. reply to #{json['id']}"
                 @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :departure}))
@@ -370,7 +376,6 @@ class MeitanBot
     sleep 1
 
     time_signal_thread = Thread.new do
-	  p cond
       log 'time signal thread start'
       loop do
         t = Time.now.getutc
@@ -379,7 +384,7 @@ class MeitanBot
             t = Time.now.getutc
             h = t.hour + 7
             diff = t.sec < 10 ? 0 : t.sec - 1
-            post_time_signal h >= 24 ? h - 24 : h
+            post_time_signal(h >= 24 ? h - 24 : h)
             sleep(60 * 60 - diff) # sleep 1 hour
           end
         end
@@ -515,6 +520,11 @@ class MeitanBot
   def reply_morning(reply_to_user, in_reply_to_id)
     log 'replying to morning greeting'
     post_reply(reply_to_user, in_reply_to_id, random_morning)
+  end
+
+  def reply_sleeping(reply_to_user, in_reply_to_id)
+    log 'replying to sleeping'
+    post_reply(reply_to_user, in_reply_to_id, random_sleeping)
   end
 
   def reply_departure(reply_to_user, in_reply_to_id)
@@ -667,6 +677,11 @@ class MeitanBot
     @reply_morning_text.sample
   end
   
+  # Get the replying text for the status containing sleeping
+  def random_sleeping
+    @reply_sleeping_text.sample
+  end
+
   # Get the replying text for the status containing departures
   def random_departure
     @reply_departure_text.sample
@@ -764,6 +779,10 @@ class MeitanBot
       @reply_morning_text = file.readlines.collect{|line| line.strip}
     end
     
+    open(REPLY_SLEEPING_FILE, 'r:UTF-8') do |file|
+      @reply_sleeping_text = file.readlines.collect{|line| line.strip}
+    end
+
     open(REPLY_DEPARTURE_FILE, 'r:UTF-8') do |file|
       @reply_departure_text = file.readlines.collect{|line| line.strip}
     end
