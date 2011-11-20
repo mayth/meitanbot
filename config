@@ -1,0 +1,13 @@
+@max_continuative_retry_count = 5
+@short_retry_interval = 15
+@long_retry_interval = 60
+@reply_limit_reset_time = 60
+@reply_limit_threshold = 20
+@sleep_when_forbidden_time = 600
+@stat_interval = 60
+@stat_file_prefix = 'stat_'
+@log_file_prefix = 'log_'
+
+@tsukuba_time_table = [['08:40', '09:55'], ['10:10', '11:25'], ['12:15', '13:30'], ['13:45', '15:00'], ['15:15', '16:30'], ['16:45', '18:00']]
+
+@ignore_id_file = 'ignore_ids'

@@ -56,8 +56,22 @@ class ForecastWeather
 end
 
 class MeitanBot
-  # Log file prefix
-  LOG_FILE_PREFIX = "log_"
+  class Config
+    def Config.load(path)
+      c = new()
+      c.instance_eval File.read(path)
+      c
+    end
+
+    attr_accessor :max_continuative_retry_count
+    attr_accessor :short_retry_interval, :long_retry_interval
+    attr_accessor :reply_limit_reset_time, :reply_limit_threshold
+    attr_accessor :sleep_when_forbidden_time
+    attr_accessor :stat_interval
+    attr_accessor :stat_file_prefix, :log_file_prefix
+    attr_accessor :tsukuba_time_table
+    attr_accessor :ignore_id_file
+  end
 
   # YAML-File including credential data
   CREDENTIAL_FILE = 'credential.yaml'
@@ -87,32 +101,14 @@ class MeitanBot
   SCREEN_NAME = 'meitanbot'
   # User-Agent
   BOT_USER_AGENT = 'Nowhere-type Meitan bot 1.0 by @maytheplic'
-  # Continuative retrying count when disconnected from Twitter or exception was thrown
-  # If retry count is exceeded this value, sleeping receiver _LONG_RETRY_INTERVAL_ sec.
-  MAX_CONTINUATIVE_RETRY_COUNT = 5
-  # Interval time for continuative retrying
-  SHORT_RETRY_INTERVAL = 15
-  # Interval time for retrying. This value will be used when retry count is exceeded _MAX_CONTINUATIVE_RETRY_COUNT_
-  LONG_RETRY_INTERVAL = 60
   # Twitter ID of the owner of this bot
   OWNER_ID = 246793872
   # Twitter ID of this bot
   MY_ID = 323080975
   # Twitter IDs to ignore
-  IGNORE_IDS = [MY_ID]
-  # Reply checking interval
-  REPLY_LIMIT_RESET_TIME = 60
-  # Reply limit threshold
-  REPLY_LIMIT_THRESHOLD = 10
-  # Sleeping time when Twitter API returns 403(Forbidden)
-  SLEEP_WHEN_FORBIDDEN = 600
-  # Interval time for statistics
-  STAT_INTERVAL = 60
-  # Statistics output file prefix
-  STAT_FILE_PREFIX = 'statistics_'
+  IGNORE_IDS = []
 
-  TIME_TABLE = [['08:40', '09:55'], ['10:10', '11:25'], ['12:15', '13:30'], ['13:45', '15:00'], ['15:15', '16:30'], ['16:45', '18:00']]
-
+  # Regular-Expression that represents replying
   REPLY_REGEX = /^@[a-zA-Z0-9_]+ /
 
   # Initialize this class.
@@ -162,7 +158,31 @@ class MeitanBot
       @credential['access_token_secret']
     )
 
+    load_config
+
     read_post_text_files
+
+    # load ignore list
+    open(@config.ignore_id_file, 'r:UTF-8') do |file|
+      IGNORE_IDS << Integer(file.readline)
+    end
+    IGNORE_IDS.uniq!
+  end
+
+  def load_config
+    @config = Config.load('config')
+  end
+
+  def config
+    @config
+  end
+
+  def update_config(key, value)
+    if @config.method_defined?(key + '=')
+      @config.send(key + '=', value)
+    else
+      log "config key:#{key} is undefined."
+    end
   end
 
   # Connect to Twitter UserStream
@@ -198,6 +218,11 @@ class MeitanBot
         end
       end
     end
+  end
+
+  def get_usertimeline
+    res = @access_token.get('https://api.twitter.com/1/statuses/home_timeline.json?count=100&trim_user=true&include_rts=false&exclude_replies=false')
+    JSON.parse(res.body)
   end
 
   # Start bot
@@ -266,6 +291,9 @@ class MeitanBot
             elsif /.*C#.*/ =~ json['text']
               log "C# detected. reply to #{json['id']}"
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :csharp}))
+            elsif /あ[あぁ]、?(.*)ってそういう/ =~ json['text']
+              log "metaphor detected. reply to #{json['id']}"
+              @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :metaphor, :word => $1}))
             elsif not REPLY_REGEX.match(json['text'])
               if /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(^(むくり|mkr)$)/ =~ json['text']
                 log "morning greeting detected. reply to #{json['id']}"
@@ -303,12 +331,12 @@ class MeitanBot
       loop do
         tweet = @reply_queue.pop
 		unless @replied_count[tweet.user.id]
-          @replied_count[tweet.user.id] = {reset_time: Time.now + REPLY_LIMIT_RESET_TIME, count: 0}
+          @replied_count[tweet.user.id] = {reset_time: Time.now + @config.reply_limit_reset_time, count: 0}
         end
         @replied_count[tweet.user.id][:count] += 1
-        if @replied_count[tweet.user.id][:count] > REPLY_LIMIT_THRESHOLD
+        if @replied_count[tweet.user.id][:count] > @config.reply_limit_threshold
           if @replied_count[tweet.user.id][:reset_time] < Time.now
-            @replied_count[tweet.user.id] = {reset_time: Time.now + REPLY_LIMIT_RESET_TIME, count: 0}
+            @replied_count[tweet.user.id] = {reset_time: Time.now + @config.reply_limit_reset_time, count: 0}
           else
             log "user:#{tweet.user.name}(#{tweet.user.id}) exceeds reply limit! suspend!"
             IGNORE_IDS << tweet.user.id
@@ -333,13 +361,15 @@ class MeitanBot
 		  res = reply_nullpo(tweet.user, tweet.id)
 		when :time_inquiry
 		  res = reply_time_inquiry(tweet.user, tweet.id, tweet.other[:time])
+        when :metaphor
+          res = reply_metaphor(tweet.user, tweet.id, tweet.other[:word])
 		else
           log "undefined reply_type: #{tweet.other[:reply_type]}"
 		end
         if res === Net::HTTPForbidden
           log "returned 403 Forbidden. Considering status duplicate, or rate limit."
-          log "reply thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
-          sleep SLEEP_WHEN_FORBIDDEN
+          log "reply thread sleeps #{@config.sleep_when_forbidden_time} sec"
+          sleep @config.sleep_when_forbidden_time
         end
       end
     end
@@ -398,13 +428,11 @@ class MeitanBot
       log 'time signal thread start'
       loop do
         t = Time.now.getutc
-        if t.min == 0
-          loop do
-            t = Time.now.getutc
-            h = t.hour + 7
-            diff = t.sec < 10 ? 0 : t.sec - 1
-            post_time_signal(h >= 24 ? h - 24 : h)
-            sleep(60 * 60 - diff) # sleep 1 hour
+        if t.min == 0 and t.sec < 5
+          h = t.hour + 7
+          post_time_signal(h >= 24 ? h - 24 : h)
+          while Time.now.getutc.min == 0
+            sleep(1)
           end
         end
       end
@@ -446,23 +474,26 @@ class MeitanBot
           rescue Timeout::Error, StandardError
             log '<RESCUE> SConnection to Twitter is disconnected or Application error was occured.'
             @statistics[:total_retry_count] += 1
-            if (retry_count < MAX_CONTINUATIVE_RETRY_COUNT)
+            if (retry_count < @config.max_continuative_retry_count)
               retry_count += 1
               log $!
               log("<RESCUE> retry:#{retry_count}")
-              sleep SHORT_RETRY_INTERVAL
+              sleep @config.short_retry_interval
               log 'retry!'
             else
               log '<RESCUE> Continuative retry was failed. Receiver will sleep long...'
-              sleep LONG_RETRY_INTERVAL
+              sleep @config.long_retry_interval
               retry_count = 0
               log 'retry!'
             end
           end
         end
       ensure
-        log 'receiver thread terminated.'
+        # Termination post
         post "Terminating meitan-bot Bye! #{Time.now.strftime("%X")}"
+        log 'receiver thread terminated.'
+        # Write ignore id list
+        update_ignore_list
       end
     end
     
@@ -488,11 +519,11 @@ class MeitanBot
           if (current_time.min % 10) == 0
             log 'output log'
             out = { current_time.strftime('%F_%H:%M') => @statistics }
-            open(STAT_FILE_PREFIX + Time.now.strftime('%Y%m%d'), 'a:UTF-8') do |file|
+            open(@config.stat_file_prefix + Time.now.strftime('%Y%m%d'), 'a:UTF-8') do |file|
               file << out.to_yaml
             end
           end
-          sleep STAT_INTERVAL
+          sleep @config.stat_interval
         end
       ensure
         log "<STAT> Meitan-bot statistics thread terminated at #{Time.now.strftime("%X")}"
@@ -604,7 +635,11 @@ class MeitanBot
   end
 
   def reply_time_inquiry(reply_to_user, in_reply_to_id, time)
-    post_reply(reply_to_user, in_reply_to_id, "#{time}時限目は #{TIME_TABLE[time - 1][0]} から #{TIME_TABLE[time - 1][1]} までだよ。")
+    post_reply(reply_to_user, in_reply_to_id, "#{time}時限目は #{@config.tsukuba_time_table[time - 1][0]} から #{@config.tsukuba_time_table[time - 1][1]} までだよ。")
+  end
+
+  def reply_metaphor(reply_to_user, in_reply_to_id, word)
+    post_reply(reply_to_user, in_reply_to_id, "#{word}ってどういう？")
   end
 
   # Reply
@@ -835,7 +870,14 @@ class MeitanBot
       log ' ' + s
     end
   end
-  
+
+  def update_ignore_list
+    log 'update ignore list'
+    open(@config.ignore_id_file, 'w:UTF-8') do |file|
+     IGNORE_IDS.each {|s| file.puts s}
+    end
+  end
+
   # Control this bot.
   # _cemmand_ is command symbol.
   # _params_ is command parameters. Parameters is array.
@@ -887,6 +929,14 @@ class MeitanBot
       read_post_text_files
       log("command<reload_post_text> accepted. meitan:#{@notmeitan_text.size}, reply:#{@reply_mention_text.size}, csharp:#{@reply_csharp_text.size}")
       send_direct_message("command<reload_post_text> accepted. meitan:#{@notmeitan_text.size}, reply:#{@reply_mention_text.size}, csharp:#{@reply_csharp_text.size}", OWNER_ID) if report_by_message
+    when :load_config
+      load_config
+      log 'command<load_config> accepted.'
+      send_direct_message('command<load_config> accepted.') if report_by_message
+    when :update_config
+      update_config(params[0], params[1])
+      log 'command<update_config> accepted.'
+      send_direct_message('command<update_config> accepted.') if report_by_message
     when :ignore_user
       logstr = "command<ignore_user> accepted."
       id = 0
@@ -928,11 +978,16 @@ class MeitanBot
       logstr += " current ignoring users: #{IGNORE_IDS.size}"
       log(logstr)
       send_direct_message(logstr, OWNER_ID) if report_by_message
+    when :update_ignore_list
+      log 'command<update_ignore_list> accepted.'
+      update_ignore_list
+      log "now ignoring #{IGNORE_IDS.size} user(s)."
+      send_direct_message("comamnd<update_ignore_list> accepted. now ignoring #{IGNORE_IDS.size} user(s).") if report_by_message
     when :check_friendships
       follow_unfollowing_user
       users = remove_removed_user
       log("command<check_friendships> accepted. current followings: #{users}")
-	  send_direct_message("command<check_friendships> accepted. current followings: #{users}")
+	  send_direct_message("command<check_friendships> accepted. current followings: #{users}") if report_by_message
     when :show_friendships
       followings = get_followings
       followers = get_followers
@@ -964,7 +1019,7 @@ class MeitanBot
   end
 
   def write_log(s)
-    open(LOG_FILE_PREFIX + Time.now.strftime('%Y%m%d'), 'a:UTF-8') do |file|
+    open(@config.log_file_prefix + Time.now.strftime('%Y%m%d'), 'a:UTF-8') do |file|
       file.puts s
 	end
   end
@@ -1022,6 +1077,8 @@ if $0 == __FILE__
         end
       end
 	  puts "Show Result: #{command_line_vars[:is_show_result_enabled]}"
+    when :show_config
+      p bot.config
     when :exit, :quit, :kill
       break
     else
