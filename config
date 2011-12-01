@@ -5,6 +5,10 @@
 @reply_limit_threshold = 20
 @sleep_when_forbidden_time = 600
 @stat_interval = 60
+@random_post_interval = 600
+@word_replace_probability = 50
+@min_word_length = 2
+@min_status_length = 2
 @stat_file_prefix = 'stat_'
 @log_file_prefix = 'log_'
 

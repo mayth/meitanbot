@@ -9,6 +9,9 @@ require 'twitter'
 require 'thread'
 require 'rexml/document'
 require 'kconv'
+require 'sqlite3'
+require 'date'
+require 'MeCab'
 
 class User
   attr_reader :id, :screen_name
@@ -71,7 +74,14 @@ class MeitanBot
     attr_accessor :stat_file_prefix, :log_file_prefix
     attr_accessor :tsukuba_time_table
     attr_accessor :ignore_id_file
+    attr_accessor :random_post_interval, :word_replace_probability
+    attr_accessor :min_word_length, :min_status_length
   end
+
+  # DateTime format from Twitter API
+  TWITTER_DATETIME_FORMAT = '%a %b %d %H:%M:%S +0000 %Y'
+  # DateTime format to output to DB
+  DB_DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 
   # YAML-File including credential data
   CREDENTIAL_FILE = 'credential.yaml'
@@ -108,18 +118,23 @@ class MeitanBot
   # Twitter IDs to ignore
   IGNORE_IDS = []
 
+  # Database for post
+  POST_DATABASE_FILE = 'posts.db'
+
   # Regular-Expression that represents replying
   REPLY_REGEX = /^@[a-zA-Z0-9_]+ /
 
   # Initialize this class.
   def initialize
     # Queue for threads
+    @received_queue = Queue.new
     @post_queue = Queue.new
     @reply_queue = Queue.new
-	@retweet_queue = Queue.new
+    @retweet_queue = Queue.new
     @event_queue = Queue.new
     @message_queue = Queue.new
     @log_queue = Queue.new
+    @recorder_queue = Queue.new
 
     @replied_count = Hash.new
 
@@ -230,16 +245,53 @@ class MeitanBot
     log 'run!'
 
     log_thread = Thread.new do
+      log 'log thread start'
       loop do
         s = @log_queue.pop
         write_log s
       end
-	end
+    end
 
-    post_thread = Thread.new do
-      log 'post thread start'
+    recorder_thread = Thread.new do
+      log 'recorder thread start'
       loop do
-        json = @post_queue.pop
+        json = @recorder_queue.pop
+        db = SQLite3::Database.new(POST_DATABASE_FILE)
+        begin
+          text = create_cleared_text json['text']
+          unless text.length < @config.min_status_length
+            time = DateTime.parse(json['created_at'], TWITTER_DATETIME_FORMAT)
+            mecab = MeCab::Tagger.new
+            node = mecab.parseToNode(text)
+            db.transaction do
+              db.execute('insert into posts values(?, ?, ?, ?, ?, ?)', json['id'], json['user']['id'], json['in_reply_to_status_id'], time.strftime(DB_DATETIME_FORMAT), text, 0) # last element is post class. classfy!
+              while node
+                if node.stat == 2 or node.stat == 3 or (node.posid < 36 or 67 < node.posid)
+                  node = node.next
+                  next
+                end
+                if node.surface.length < @config.min_word_length
+                  node = node.next
+                  next
+                end
+                type = 1 # Type 1 means this word is noun.
+                db.execute('insert into words values(NULL, ?, ?, ?, ?, ?)', json['user']['id'], time.strftime(DB_DATETIME_FORMAT), type, node.surface, 0) # last element is word class. classify!
+                node = node.next
+              end
+            end # transaction end
+          end # end unless statement
+        rescue
+          error_log $!
+        ensure
+          db.close
+        end
+      end
+    end
+
+    response_thread = Thread.new do
+      log 'response thread start'
+      loop do
+        json = @received_queue.pop
         user = json['user']
         if /(^#meitanbot | #meitanbot$)/ =~ json['text'] and user['id'] == OWNER_ID
           log 'Owner update the status including meitanbot hash-tag.'
@@ -280,6 +332,7 @@ class MeitanBot
 			@reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :time_inquiry, :time => time}))
 			next
 		  end # end of checking for replying text
+          @recorder_queue.push json
           unless (@is_ignore_owner and user['id'] == OWNER_ID)
             if /め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん/ =~ json['text'] or json['text'].include?('#mei_tan')
               log "meitan detected. reply to #{json['id']}"
@@ -330,7 +383,7 @@ class MeitanBot
       log 'reply thread start'
       loop do
         tweet = @reply_queue.pop
-		unless @replied_count[tweet.user.id]
+        unless @replied_count[tweet.user.id]
           @replied_count[tweet.user.id] = {reset_time: Time.now + @config.reply_limit_reset_time, count: 0}
         end
         @replied_count[tweet.user.id][:count] += 1
@@ -352,20 +405,20 @@ class MeitanBot
         when :morning
           res = reply_morning(tweet.user, tweet.id)
         when :returning
-		  res = reply_return(tweet.user, tweet.id)
+          res = reply_return(tweet.user, tweet.id)
         when :departure
           res = reply_departure(tweet.user, tweet.id)
-		when :weather
+        when :weather
           res = reply_weather(tweet.user, tweet.id, tweet.other[:ahead])
         when :nullpo
-		  res = reply_nullpo(tweet.user, tweet.id)
-		when :time_inquiry
-		  res = reply_time_inquiry(tweet.user, tweet.id, tweet.other[:time])
+          res = reply_nullpo(tweet.user, tweet.id)
+        when :time_inquiry
+          res = reply_time_inquiry(tweet.user, tweet.id, tweet.other[:time])
         when :metaphor
           res = reply_metaphor(tweet.user, tweet.id, tweet.other[:word])
-		else
+        else
           log "undefined reply_type: #{tweet.other[:reply_type]}"
-		end
+        end
         if res === Net::HTTPForbidden
           log "returned 403 Forbidden. Considering status duplicate, or rate limit."
           log "reply thread sleeps #{@config.sleep_when_forbidden_time} sec"
@@ -424,10 +477,30 @@ class MeitanBot
 
     sleep 1
 
+    post_thread = Thread.new do
+      log 'post thread start'
+      loop do
+        s = @post_queue.pop
+        post(s)
+      end
+    end
+
+    sleep 1
+
+    random_post_thread = Thread.new do
+      log 'random post thread start'
+      loop do
+        @post_queue.push random_post
+        sleep @config.random_post_interval
+      end
+    end
+
+    sleep 1
+
     time_signal_thread = Thread.new do
       log 'time signal thread start'
       loop do
-        t = Time.now.getutc
+        e = Time.now.getutc
         if t.min == 0 and t.sec < 5
           h = t.hour + 7
           post_time_signal(h >= 24 ? h - 24 : h)
@@ -462,7 +535,7 @@ class MeitanBot
             connect do |json|
               if json['text'] and not json['retweeted_status']
                 @statistics[:post_received_count] += 1
-                @post_queue.push json
+                @received_queue.push json
               elsif json['event']
                 @statistics[:event_received_count] += 1
                 @event_queue.push json
@@ -558,7 +631,7 @@ class MeitanBot
   # Reply to reply to me
   def reply_mention(reply_to_user, in_reply_to_id)
     log "replying to mention"
-    post_reply(reply_to_user, in_reply_to_id, random_mention)
+    post_reply(reply_to_user, in_reply_to_id, random_mention(reply_to_user.id))
   end
 
   # Reply to the post containing "C#"
@@ -642,6 +715,31 @@ class MeitanBot
     post_reply(reply_to_user, in_reply_to_id, "#{word}ってどういう？")
   end
 
+  def random_post()
+    db = SQLite3::Database.new(POST_DATABASE_FILE)
+    status = db.get_first_value('SELECT status FROM posts ORDER BY RANDOM() LIMIT 1')
+    words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT 10')
+    db.close
+    mecab = MeCab::Tagger.new
+    node = mecab.parseToNode(status)
+    result = Array.new
+    while node
+      unless node.stat == 2 or node.stat == 3 
+        if node.posid < 36 or 67 < node.posid
+          result << node.surface
+        else
+          if rand(100) < @config.word_replace_probability 
+            result << words[rand(10)]
+          else
+            result << node.surface
+          end
+        end
+      end
+      node = node.next
+    end
+    result.join(nil)
+  end
+
   # Reply
   def post_reply(reply_to_user, in_reply_to_id, status)
     if @is_enabled_posting
@@ -649,11 +747,12 @@ class MeitanBot
       @statistics[:reply_count] += 1
       log "replying"
       req_start = Time.now
-      @access_token.post('https://api.twitter.com/1/statuses/update.json',
+      res = @access_token.post('https://api.twitter.com/1/statuses/update.json',
         'status' => "@#{reply_to_user.screen_name} " + status,
         'in_reply_to_status_id' => in_reply_to_id)
       req_end = Time.now
       @tweet_request_time << req_end - req_start
+      res
     else
       log "posting function is now disabled because @is_enabled_posting is false."
     end
@@ -669,6 +768,7 @@ class MeitanBot
         'status' => status)
       req_end = Time.now
       @tweet_request_time << req_end - req_start
+      res
     else
       log "posting function is now disabled because @is_enabled_posting is false."
     end
@@ -717,8 +817,31 @@ class MeitanBot
   end
 
   # Get the replying text
-  def random_mention
-    @reply_mention_text.sample
+  def random_mention(id)
+    db = SQLite3::Database.new(POST_DATABASE_FILE)
+    status = db.get_first_value('SELECT status FROM posts WHERE user_id = ? ORDER BY RANDOM() LIMIT 1', id)
+    user_words = db.execute('SELECT word FROM words WHERE user_id = ? ORDER BY RANDOM() LIMIT 5', id)
+    other_words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT 5')
+    db.close
+    words = user_words + other_words
+    mecab = MeCab::Tagger.new
+    node = mecab.parseToNode(status)
+    result = Array.new
+    while node
+      unless node.stat == 2 or node.stat == 3
+        if node.posid < 36 or 67 < node.posid
+          result << node.surface
+        else
+          if rand(100) < @config.word_replace_probability
+            result << words[rand(10)]
+          else
+            result << node.surface
+          end
+        end
+      end
+      node = node.next
+    end
+    result.join(nil)
   end
 
   # Get the replying for the status containing "C#"
@@ -878,6 +1001,18 @@ class MeitanBot
     end
   end
 
+  # Create cleared text
+  # _s_ is the text to clear.
+  # Cleared text is the text that is removed mentions, hashtags, URLs, RTs and QTs.
+  def create_cleared_text(s)
+    s.gsub(/[RMQ]T @[a-zA-Z0-9_]+:.*/, '')
+     .gsub(/\. ?(@[a-zA-Z0-9_]+ )+/, '')
+     .gsub(/@[a-zA-Z0-9_]+/, '')
+     .gsub(%r[(https?|ftp)(:\/\/[-_.!~*\'()a-zA-Z0-9;\/?:\@&=+\$,%#]+)], '')
+     .gsub(/#.+([ 　、。]|$)/, '')
+     .strip
+  end
+
   # Control this bot.
   # _cemmand_ is command symbol.
   # _params_ is command parameters. Parameters is array.
@@ -993,6 +1128,13 @@ class MeitanBot
       followers = get_followers
       log("inquiry<show_friendships> accepted. followings/followers=#{followings.size}/#{followers.size}")
       send_direct_message("inquiry<show_friendships> accepted. followings/followers=#{followings.size}/#{followers.size}", OWNER_ID) if report_by_message
+    when :show_db_status
+      db = SQLite3::Database.new(POST_DATABASE_FILE)
+      posts = db.execute('select * from posts');
+      words = db.execute('select * from words');
+      db.close
+      log("inquiry<show_db_status> accepted. current recorded posts=#{posts.size}, words=#{words.size}")
+      send_direct_message("inquiry<show_db_status> accepted. current recorded posts=#{posts.size}, words=#{words.size}") if report_by_message
     when :help
       log("inquiry<help> accepted. Available commands: is_ignore_owner(?), is_enable_posting(?), reload_post_text, ignore_user.")
       send_direct_message("This function is only available on command-line.", OWNER_ID) if report_by_message
@@ -1018,10 +1160,14 @@ class MeitanBot
     @log_queue.push create_logstr s
   end
 
+  def error_log(s)
+    @log_queue.push '[ERROR]' + create_logstr(s)
+  end
+
   def write_log(s)
     open(@config.log_file_prefix + Time.now.strftime('%Y%m%d'), 'a:UTF-8') do |file|
       file.puts s
-	end
+    end
   end
 
   def create_logstr(s)
@@ -1038,9 +1184,7 @@ class MeitanBot
   private :read_post_text_files, :log
 end
 
-open('running_host', 'w:UTF-8') do |file|
-  file.puts `echo $HOSTNAME`
-end
+open('running_host', 'w:UTF-8') {|file| file.puts `echo $HOSTNAME`}
 
 if $0 == __FILE__
   bot = MeitanBot.new
