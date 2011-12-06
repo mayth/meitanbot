@@ -1,11 +1,7 @@
 /credential.yaml
 /doc
-<<<<<<< HEAD
 *~
 *.swp
 *.log
 log_*
-statistics_*
-=======
-*~
->>>>>>> Change .gitignore
+stat_*

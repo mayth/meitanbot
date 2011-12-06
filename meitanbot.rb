@@ -52,9 +52,9 @@ class ForecastWeather
 
   def initialize(day_of_week, condition, low, high)
     @day_of_week = day_of_week
-	@condition = condition
-	@low = Integer(low)
-	@high = Integer(high)
+	  @condition = condition
+	  @low = Integer(low)
+	  @high = Integer(high)
   end
 end
 
@@ -76,6 +76,13 @@ class MeitanBot
     attr_accessor :ignore_id_file
     attr_accessor :random_post_interval, :word_replace_probability
     attr_accessor :min_word_length, :min_status_length
+  end
+
+  class StatTypes
+    STARTUP = 'START'
+    STAT = 'STATS'
+    NORMAL = 'NORML'
+    ERROR = 'ERROR'
   end
 
   # DateTime format from Twitter API
@@ -196,7 +203,7 @@ class MeitanBot
     if @config.method_defined?(key + '=')
       @config.send(key + '=', value)
     else
-      log "config key:#{key} is undefined."
+      log("config key:#{key} is undefined.", StatTypes::ERROR)
     end
   end
 
@@ -242,7 +249,7 @@ class MeitanBot
 
   # Start bot
   def run
-    log 'run!'
+    log('run!', StatTypes::STARTUP)
 
     log_thread = Thread.new do
       log 'log thread start'
@@ -253,7 +260,7 @@ class MeitanBot
     end
 
     recorder_thread = Thread.new do
-      log 'recorder thread start'
+      log('recorder thread start', StatTypes::STARTUP)
       loop do
         json = @recorder_queue.pop
         db = SQLite3::Database.new(POST_DATABASE_FILE)
@@ -281,7 +288,7 @@ class MeitanBot
             end # transaction end
           end # end unless statement
         rescue
-          error_log $!
+          log($!, StatTypes::ERROR)
         ensure
           db.close
         end
@@ -289,12 +296,12 @@ class MeitanBot
     end
 
     response_thread = Thread.new do
-      log 'response thread start'
+      log('response thread start', StatTypes::STARTUP)
       loop do
         json = @received_queue.pop
         user = json['user']
         if /(^#meitanbot | #meitanbot$)/ =~ json['text'] and user['id'] == OWNER_ID
-          log 'Owner update the status including meitanbot hash-tag.'
+          log('Owner update the status including meitanbot hash-tag.')
           @retweet_queue.push json
         end
 		unless IGNORE_IDS.include?(user['id'])
@@ -380,7 +387,7 @@ class MeitanBot
     sleep 1
 
     reply_thread = Thread.new do
-      log 'reply thread start'
+      log('reply thread start', StatTypes::STARTUP)
       loop do
         tweet = @reply_queue.pop
         unless @replied_count[tweet.user.id]
@@ -404,6 +411,8 @@ class MeitanBot
           res = reply_csharp(tweet.user, tweet.id)
         when :morning
           res = reply_morning(tweet.user, tweet.id)
+        when :sleeping
+          res = reply_sleeping(tweet.user, tweet.id)
         when :returning
           res = reply_return(tweet.user, tweet.id)
         when :departure
@@ -417,10 +426,10 @@ class MeitanBot
         when :metaphor
           res = reply_metaphor(tweet.user, tweet.id, tweet.other[:word])
         else
-          log "undefined reply_type: #{tweet.other[:reply_type]}"
+          log("undefined reply_type: #{tweet.other[:reply_type]}", StatTypes::ERROR)
         end
         if res === Net::HTTPForbidden
-          log "returned 403 Forbidden. Considering status duplicate, or rate limit."
+          log("returned 403 Forbidden. Considering status duplicate, or rate limit.", StatTypes::ERROR)
           log "reply thread sleeps #{@config.sleep_when_forbidden_time} sec"
           sleep @config.sleep_when_forbidden_time
         end
@@ -430,12 +439,12 @@ class MeitanBot
     sleep 1
     
     retweet_thread = Thread.new do
-      log 'retweet thread start'
+      log('retweet thread start', StatTypes::STARTUP)
       loop do
         json = @retweet_queue.pop
         res = retweet(json['id'])
         if res === Net::HTTPForbidden
-          log "returned 403 Forbidden. Considering status duplicate, or rate limit."
+          log('returned 403 Forbidden. Considering status duplicate, or rate limit.', StatTypes::ERROR)
           log "retweet thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
           sleep SLEEP_WHEN_FORBIDDEN
         end
@@ -445,7 +454,7 @@ class MeitanBot
     sleep 1
 
     event_thread = Thread.new do
-      log 'event thread start'
+      log('event thread start', StatTypes::STARTUP)
       loop do
         json = @event_queue.pop
         case json['event'].to_sym
@@ -459,7 +468,7 @@ class MeitanBot
     sleep 1
 
     message_thread = Thread.new do
-      log 'message thread start'
+      log('message thread start', StatTypes::STARTUP)
       loop do
         json = @message_queue.pop
         log 'Message received.'
@@ -478,7 +487,7 @@ class MeitanBot
     sleep 1
 
     post_thread = Thread.new do
-      log 'post thread start'
+      log('post thread start', StatTypes::STARTUP)
       loop do
         s = @post_queue.pop
         post(s)
@@ -488,7 +497,7 @@ class MeitanBot
     sleep 1
 
     random_post_thread = Thread.new do
-      log 'random post thread start'
+      log('random post thread start', StatTypes::STARTUP)
       loop do
         @post_queue.push random_post
         sleep @config.random_post_interval
@@ -498,7 +507,7 @@ class MeitanBot
     sleep 1
 
     time_signal_thread = Thread.new do
-      log 'time signal thread start'
+      log('time signal thread start', StatTypes::STARTUP)
       loop do
         e = Time.now.getutc
         if t.min == 0 and t.sec < 5
@@ -514,7 +523,7 @@ class MeitanBot
     sleep 1
 
     friendship_check_thread = Thread.new do
-      log 'friendship check thread start'
+      log('friendship check thread start', StatTypes::STARTUP)
       loop do
 	    log 'check friendship'
         follow_unfollowing_user
@@ -527,7 +536,7 @@ class MeitanBot
 
     receiver_thread = Thread.new do
       begin
-        log "receiver thread start"
+        log('receiver thread start', StatTypes::STARTUP)
         total_retry_count = 0
         retry_count = 0
         loop do
@@ -545,16 +554,16 @@ class MeitanBot
               end
             end
           rescue Timeout::Error, StandardError
-            log '<RESCUE> SConnection to Twitter is disconnected or Application error was occured.'
+            log('Connection to Twitter is disconnected or Application error was occured.', StatTypes::ERROR)
             @statistics[:total_retry_count] += 1
             if (retry_count < @config.max_continuative_retry_count)
               retry_count += 1
-              log $!
-              log("<RESCUE> retry:#{retry_count}")
+              log($!, StatTypes::ERROR)
+              log('retry:#{retry_count}')
               sleep @config.short_retry_interval
               log 'retry!'
             else
-              log '<RESCUE> Continuative retry was failed. Receiver will sleep long...'
+              log('Continuative retry was failed. Receiver will sleep long...', StatTypes::ERROR)
               sleep @config.long_retry_interval
               retry_count = 0
               log 'retry!'
@@ -574,12 +583,12 @@ class MeitanBot
     
     statistics_thread = Thread.new do
       begin
-        log 'statistics thread start'
+        log('statistics thread start', StatTypes::STARTUP)
         before_time = Time.now
-        log "<STAT> Meitan-bot statistics thread started at #{Time.now.strftime("%X")}"
+        log("Meitan-bot statistics thread started at #{Time.now.strftime("%X")}", StatTypes::STARTUP)
         loop do
           current_time = Time.now
-          log "<STAT> Statistics at #{current_time.to_s}"
+          log("Statistics at #{current_time.to_s}", StatTypes::STAT)
           @tweet_request_time.compact!
           total = 0.0
           for t in @tweet_request_time
@@ -587,10 +596,10 @@ class MeitanBot
           end
           @statistics[:tweet_request_time_average] = total / @statistics[:post_count]
           @statistics.to_s.lines do |line|
-            log "<STAT> #{line}"
+            log(line, StatTypes::STAT)
           end
           if (current_time.min % 10) == 0
-            log 'output log'
+            log('output stat', StatTypes::STAT)
             out = { current_time.strftime('%F_%H:%M') => @statistics }
             open(@config.stat_file_prefix + Time.now.strftime('%Y%m%d'), 'a:UTF-8') do |file|
               file << out.to_yaml
@@ -599,7 +608,7 @@ class MeitanBot
           sleep @config.stat_interval
         end
       ensure
-        log "<STAT> Meitan-bot statistics thread terminated at #{Time.now.strftime("%X")}"
+        log("Meitan-bot statistics thread terminated at #{Time.now.strftime("%X")}", StatTypes::STAT)
       end
     end
     
@@ -607,7 +616,7 @@ class MeitanBot
 
     tweet_greeting
     
-    log 'startup complete.'
+    log('startup complete.', StatTypes::STARTUP)
   end # end of run method
 
   # Tweet the greeting post when bot is started.
@@ -1029,10 +1038,10 @@ class MeitanBot
         when :false
           @is_ignore_owner = false
         else
-          log('unknown value')
+          log('unknown value', StatTypes::ERROR)
         end
       else
-        log('no param')
+        log('no param', StatTypes::ERROR)
       end
       log("command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}")
       send_direct_message("command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}", OWNER_ID) if report_by_message
@@ -1047,10 +1056,10 @@ class MeitanBot
         when :false
           @is_enabled_posting = false
         else
-          log('unknown value')
+          log('unknown value', StatTypes::ERROR)
         end
       else
-        log('no param')
+        log('no param', StatTypes::ERROR)
       end
       log("command<is_enable_posting> accepted. current value is #{@is_enabled_posting}")
       send_direct_message("command<is_enable_posting> accepted. current value is #{@is_enabled_posting}", OWNER_ID) if report_by_message
@@ -1087,7 +1096,7 @@ class MeitanBot
             id = json['id'] if json['screen_name'] == screen_name
           end
         rescue
-          log('String conversion / Get the ID from Screen Name failure.')
+          log('String conversion / Get the ID from Screen Name failure.', StatTypes::ERROR)
         end
       end
       unless id == 0
@@ -1105,10 +1114,10 @@ class MeitanBot
             end
           end
         else
-          log('no param')
+          log('no param', StatTypes::ERROR)
         end
       else
-        log('ID is 0')
+        log('ID is 0', StatTypes::ERROR)
       end
       logstr += " current ignoring users: #{IGNORE_IDS.size}"
       log(logstr)
@@ -1156,12 +1165,8 @@ class MeitanBot
     end
   end
 
-  def log(s)
-    @log_queue.push create_logstr s
-  end
-
-  def error_log(s)
-    @log_queue.push '[ERROR]' + create_logstr(s)
+  def log(s, log_type = StatTypes::NORMAL)
+    @log_queue.push create_logstr(s, log_type)
   end
 
   def write_log(s)
@@ -1170,8 +1175,8 @@ class MeitanBot
     end
   end
 
-  def create_logstr(s)
-	'[' + Time.now.strftime('%F_%T%z') + '] ' + String(s)
+  def create_logstr(s, log_type = StatTypes::NORMAL)
+	"[#{Time.now.strftime('%F_%T%z')}]<#{log_type}> #{String(s)}"
   end
 
   private :connect, :tweet_greeting, :post_time_signal

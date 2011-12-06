@@ -9,9 +9,13 @@
 @word_replace_probability = 50
 @min_word_length = 2
 @min_status_length = 2
+@num_of_word = 20
+@num_of_users_word = 10
+@num_of_others_word = 10
 @stat_file_prefix = 'stat_'
 @log_file_prefix = 'log_'
 
 @tsukuba_time_table = [['08:40', '09:55'], ['10:10', '11:25'], ['12:15', '13:30'], ['13:45', '15:00'], ['15:15', '16:30'], ['16:45', '18:00']]
 
 @ignore_id_file = 'ignore_ids'
+
