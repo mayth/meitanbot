@@ -263,6 +263,7 @@ class MeitanBot
       log('recorder thread start', StatTypes::STARTUP)
       loop do
         json = @recorder_queue.pop
+        next if IGNORE_SOURCES.include?(json['source'])
         db = SQLite3::Database.new(POST_DATABASE_FILE)
         begin
           text = create_cleared_text json['text']
@@ -461,6 +462,9 @@ class MeitanBot
         when :follow
           log "new follower: id:#{json['source']['id']}, screen_name:@#{json['source']['screen_name']}"
           follow_user json['source']['id']
+        when :unfollow
+          log "removed from: id:#{json['source']['id']}, screen_name:@#{json['source']['screen_name']}"
+          remove_user json['source']['id']
         end
       end
     end
