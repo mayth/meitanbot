@@ -263,7 +263,6 @@ class MeitanBot
       log('recorder thread start', StatTypes::STARTUP)
       loop do
         json = @recorder_queue.pop
-        next if IGNORE_SOURCES.include?(json['source'])
         db = SQLite3::Database.new(POST_DATABASE_FILE)
         begin
           text = create_cleared_text json['text']
@@ -559,10 +558,10 @@ class MeitanBot
             end
           rescue Timeout::Error, StandardError
             log('Connection to Twitter is disconnected or Application error was occured.', StatTypes::ERROR)
+            log($!, StatTypes::ERROR)
             @statistics[:total_retry_count] += 1
             if (retry_count < @config.max_continuative_retry_count)
               retry_count += 1
-              log($!, StatTypes::ERROR)
               log('retry:#{retry_count}')
               sleep @config.short_retry_interval
               log 'retry!'
