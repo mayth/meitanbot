@@ -5,7 +5,6 @@ require 'oauth'
 require 'json'
 require 'psych'
 require 'yaml'
-require 'twitter'
 require 'thread'
 require 'rexml/document'
 require 'kconv'
@@ -889,8 +888,10 @@ class MeitanBot
         'cursor' => cursor,
         'screen_name' => SCREEN_NAME)
       json = JSON.parse(res.body)
-      result << json
-      # get_followers(json['next_cursor_str'])
+      result << json['ids']
+      if json['next_cursor_str']
+        result << get_followers(json['next_cursor_str'])
+      end
       return result.flatten!
     end
   end
@@ -904,8 +905,10 @@ class MeitanBot
         'cursor' => cursor,
         'screen_name' => SCREEN_NAME)
       json = JSON.parse(res.body)
-      result << json
-      # get_followings(json['next_cursor_str'])
+      result << json['ids']
+      if json['next_cursor_str']
+        result << get_followings(json['next_cursor_str'])
+      end
       return result.flatten!
     end
   end
@@ -915,9 +918,13 @@ class MeitanBot
   def follow_unfollowing_user
     # Following new users
     # followers - following = need to follow
-    followers = get_followers
-    followings = get_followings
-    need_to_follow = followers - followings
+    begin
+      followers = get_followers
+      followings = get_followings
+      need_to_follow = followers - followings
+    rescue
+      log($!, StatTypes::ERROR)
+    end
 
     log "need to follow: "
     for id in need_to_follow do
@@ -934,9 +941,13 @@ class MeitanBot
   # Remove the user that he/she removed me but I'm still following.
   # [RETURN] Number of following users after this removing process.
   def remove_removed_user
-    followers = get_followers
-    followings = get_followings
-    need_to_remove = followings - followers
+    begin
+      followers = get_followers
+      followings = get_followings
+      need_to_remove = followings - followers
+    rescue
+      log($!, StatTypes::ERROR)
+    end
 
     log 'need to remove: '
     for id in need_to_remove do
