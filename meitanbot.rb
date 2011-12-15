@@ -75,6 +75,7 @@ class MeitanBot
     attr_accessor :ignore_id_file
     attr_accessor :random_post_interval, :word_replace_probability
     attr_accessor :min_word_length, :min_status_length
+    attr_accessor :num_of_word, :num_of_users_word, :num_of_others_word
   end
 
   class StatTypes
@@ -728,9 +729,14 @@ class MeitanBot
 
   def random_post()
     db = SQLite3::Database.new(POST_DATABASE_FILE)
-    status = db.get_first_value('SELECT status FROM posts ORDER BY RANDOM() LIMIT 1')
-    words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT ?', @config.num_of_word)
-    db.close
+    begin
+      status = db.get_first_value('SELECT status FROM posts ORDER BY RANDOM() LIMIT 1')
+      words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT ?', @config.num_of_word)
+    rescue
+      log($!, StatTypes::ERROR)
+    ensure
+      db.close
+    end
     mecab = MeCab::Tagger.new
     node = mecab.parseToNode(status)
     result = Array.new
@@ -740,7 +746,7 @@ class MeitanBot
           result << node.surface
         else
           if rand(100) < @config.word_replace_probability 
-            result << words[rand(10)]
+            result << words[rand(words.size)]
           else
             result << node.surface
           end
@@ -830,10 +836,15 @@ class MeitanBot
   # Get the replying text
   def random_mention(id)
     db = SQLite3::Database.new(POST_DATABASE_FILE)
-    status = db.get_first_value('SELECT status FROM posts WHERE user_id = ? ORDER BY RANDOM() LIMIT 1', id)
-    user_words = db.execute('SELECT word FROM words WHERE user_id = ? ORDER BY RANDOM() LIMIT ?', id, @config.num_of_users_word)
-    other_words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT ?', @config.num_of_others_word)
-    db.close
+    begin
+      status = db.get_first_value('SELECT status FROM posts WHERE user_id = ? ORDER BY RANDOM() LIMIT 1', id)
+      user_words = db.execute('SELECT word FROM words WHERE user_id = ? ORDER BY RANDOM() LIMIT ?', id, @config.num_of_users_word)
+      other_words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT ?', @config.num_of_others_word)
+    rescue
+      log($!, StatTypes::ERROR)
+    ensure
+      db.close
+    end
     words = user_words + other_words
     mecab = MeCab::Tagger.new
     node = mecab.parseToNode(status)
@@ -1153,9 +1164,14 @@ class MeitanBot
       send_direct_message("inquiry<show_friendships> accepted. followings/followers=#{followings.size}/#{followers.size}", OWNER_ID) if report_by_message
     when :show_db_status
       db = SQLite3::Database.new(POST_DATABASE_FILE)
-      posts = db.execute('select * from posts');
-      words = db.execute('select * from words');
-      db.close
+      begin
+        posts = db.execute('select * from posts');
+        words = db.execute('select * from words');
+      rescue
+        log($!, StatTypes::ERROR)
+      ensure
+        db.close
+      end
       log("inquiry<show_db_status> accepted. current recorded posts=#{posts.size}, words=#{words.size}")
       send_direct_message("inquiry<show_db_status> accepted. current recorded posts=#{posts.size}, words=#{words.size}") if report_by_message
     when :help
