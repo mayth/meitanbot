@@ -729,7 +729,7 @@ class MeitanBot
   def random_post()
     db = SQLite3::Database.new(POST_DATABASE_FILE)
     status = db.get_first_value('SELECT status FROM posts ORDER BY RANDOM() LIMIT 1')
-    words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT 10')
+    words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT ?', @config.num_of_word)
     db.close
     mecab = MeCab::Tagger.new
     node = mecab.parseToNode(status)
@@ -831,8 +831,8 @@ class MeitanBot
   def random_mention(id)
     db = SQLite3::Database.new(POST_DATABASE_FILE)
     status = db.get_first_value('SELECT status FROM posts WHERE user_id = ? ORDER BY RANDOM() LIMIT 1', id)
-    user_words = db.execute('SELECT word FROM words WHERE user_id = ? ORDER BY RANDOM() LIMIT 5', id)
-    other_words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT 5')
+    user_words = db.execute('SELECT word FROM words WHERE user_id = ? ORDER BY RANDOM() LIMIT ?', id, @config.num_of_users_word)
+    other_words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT ?', @config.num_of_others_word)
     db.close
     words = user_words + other_words
     mecab = MeCab::Tagger.new
@@ -844,7 +844,7 @@ class MeitanBot
           result << node.surface
         else
           if rand(100) < @config.word_replace_probability
-            result << words[rand(10)]
+            result << words[rand(words.size)]
           else
             result << node.surface
           end
