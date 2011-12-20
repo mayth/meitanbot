@@ -12,6 +12,9 @@
 @num_of_word = 20
 @num_of_users_word = 10
 @num_of_others_word = 10
+@max_pending_word = 500
+@word_remain_after_delete = 400
+@word_record_threshold = 5
 @stat_file_prefix = 'stat_'
 @log_file_prefix = 'log_'
 

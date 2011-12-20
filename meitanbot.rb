@@ -76,6 +76,7 @@ class MeitanBot
     attr_accessor :random_post_interval, :word_replace_probability
     attr_accessor :min_word_length, :min_status_length
     attr_accessor :num_of_word, :num_of_users_word, :num_of_others_word
+    attr_accessor :max_pending_word
   end
 
   class StatTypes
@@ -144,6 +145,7 @@ class MeitanBot
     @recorder_queue = Queue.new
 
     @replied_count = Hash.new
+    @pending_word = Hash.new
 
     ## Statistics
     # Required time for status update request.
@@ -271,7 +273,7 @@ class MeitanBot
             mecab = MeCab::Tagger.new
             node = mecab.parseToNode(text)
             db.transaction do
-              db.execute('insert into posts values(?, ?, ?, ?, ?, ?)', json['id'], json['user']['id'], json['in_reply_to_status_id'], time.strftime(DB_DATETIME_FORMAT), text, 0) # last element is post class. classfy!
+              db.execute('INSERT INTO posts VALUES(?, ?, ?, ?, ?, ?)', json['id'], json['user']['id'], json['in_reply_to_status_id'], time.strftime(DB_DATETIME_FORMAT), text, 0) # last element is post class. classfy!
               while node
                 if node.stat == 2 or node.stat == 3 or (node.posid < 36 or 67 < node.posid)
                   node = node.next
@@ -282,7 +284,23 @@ class MeitanBot
                   next
                 end
                 type = 1 # Type 1 means this word is noun.
-                db.execute('insert into words values(NULL, ?, ?, ?, ?, ?)', json['user']['id'], time.strftime(DB_DATETIME_FORMAT), type, node.surface, 0) # last element is word class. classify!
+                if @pending_word.include?(node.surface)
+                  @pending_word[node.surface.to_sym][:count] += 1
+                  if @pending_word[node.surface.to_sym] >= @config.word_record_threshold
+                    if db.execute('SELECT word FROM words WHERE word = ?', node.surface).size == 0
+                      db.execute('INSERT INTO words VALUES(NULL, ?, ?, ?, ?, ?)', json['user']['id'], time.strftime(DB_DATETIME_FORMAT), type, node.surface, 0) # last element is word class. classify!
+                      @post_queue.push ".oO（#{node.surface}） #meitan_record"
+                    end
+                  end
+                else
+                  if db.execute('SELECT word FROM words WHERE word = ?', node.surface).size == 0
+                    @pending_word[node.surface.to_sym] = {recorded_at: DateTime.now, count: 1}
+                    if @pending_word.size > @config.max_pending_word
+                      min = @pending_word.sort_by{|a| a[1][:recorded_at]}.reverse.take(@config.word_remain_after_delete).min_by{|a| a[1][:recorded_at]}[1][:recorded_at]
+                      @pending_word.reject!{|k, v| v[:recorded_at] < min}
+                    end
+                  end
+                end
                 node = node.next
               end
             end # transaction end
@@ -351,9 +369,20 @@ class MeitanBot
             elsif /.*C#.*/ =~ json['text']
               log "C# detected. reply to #{json['id']}"
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :csharp}))
-            elsif /あ[あぁ]、?(.*)ってそういう/ =~ json['text']
+            elsif /あ[あぁ][.、…]*?(.*)ってそういう/ =~ json['text']
               log "metaphor detected. reply to #{json['id']}"
-              @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :metaphor, :word => $1}))
+              word = $1
+              word = $! if /[（「【『［〈《〔｛\[({<](.*)[）」】』］〉》〕｝\])}>]」/ =~ word
+              @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :metaphor, :word => word}))
+              time = DateTime.parse(json['created_at'], TWITTER_DATETIME_FORMAT)
+              db = SQLite3::Database.new(POST_DATABASE_FILE)
+              begin
+                db.execute('INSERT INTO words VALUES(NULL, ?, ?, ?, ?, ?)', json['user']['id'], time.strftime(DB_DATETIME_FORMAT), 0, word, 0) # last element is word class. classify!
+              rescue
+                log($!, StatTypes::ERROR)
+              ensure
+                db.close
+              end
             elsif not REPLY_REGEX.match(json['text'])
               if /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(^(むくり|mkr)$)/ =~ json['text']
                 log "morning greeting detected. reply to #{json['id']}"
@@ -669,7 +698,11 @@ class MeitanBot
   
   def reply_return(reply_to_user, in_reply_to_id)
     log 'replying to returning'
-    post_reply(reply_to_user, in_reply_to_id, random_return)
+    if reply_to_user.id == 252004214
+      post_reply(reply_to_user, in_reply_to_id, 'おかえりつぃん！')
+    else
+      post_reply(reply_to_user, in_reply_to_id, random_return)
+    end
   end
 
   def reply_weather(reply_to_user, in_reply_to_id, ahead)
@@ -826,6 +859,12 @@ class MeitanBot
       @access_token.post('https://api.twitter.com/1/friendships/destroy.json',
         'user_id' => id)
     end
+  end
+
+  def record_tweet tweet
+  end
+
+  def record_word word
   end
 
   # Get "not-meitan" text
@@ -1165,8 +1204,8 @@ class MeitanBot
     when :show_db_status
       db = SQLite3::Database.new(POST_DATABASE_FILE)
       begin
-        posts = db.execute('select * from posts');
-        words = db.execute('select * from words');
+        posts = db.execute('SELECT * FROM posts');
+        words = db.execute('SELECT * FROM words');
       rescue
         log($!, StatTypes::ERROR)
       ensure
