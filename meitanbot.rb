@@ -1207,6 +1207,12 @@ class MeitanBot
       end
       log("inquiry<show_db_status> accepted. current recorded posts=#{posts.size}, words=#{words.size}")
       send_direct_message("inquiry<show_db_status> accepted. current recorded posts=#{posts.size}, words=#{words.size}") if report_by_message
+    when :tweet
+      if params[0]
+        @post_queue.push params[0]
+      end
+      log("command<tweet> accepted.")
+      send_direct_message("command<tweet> accepted.") if report_by_message
     when :help
       log("inquiry<help> accepted. Available commands: is_ignore_owner(?), is_enable_posting(?), reload_post_text, ignore_user.")
       send_direct_message("This function is only available on command-line.", OWNER_ID) if report_by_message
