@@ -657,12 +657,6 @@ class MeitanBot
     post "Starting meitan-bot. Hello! #{Time.now.strftime('%X')}"
   end
 
-  # Tweet the time signal post.
-  def post_time_signal(hour)
-    log "time signal: #{hour}"
-    post "#{hour}時(TST)をお知らせします。"
-  end
-
   # Tweet "I'm not meitan!"
   def reply_meitan(reply_to_user, in_reply_to_id)
     log "replying to meitan"
