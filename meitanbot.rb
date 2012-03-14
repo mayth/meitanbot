@@ -76,7 +76,7 @@ class MeitanBot
     attr_accessor :random_post_interval, :word_replace_probability
     attr_accessor :min_word_length, :min_status_length
     attr_accessor :num_of_word, :num_of_users_word, :num_of_others_word
-    attr_accessor :max_pending_word
+    attr_accessor :max_pending_word, :word_remain_after_delete
   end
 
   class StatTypes
@@ -538,22 +538,6 @@ class MeitanBot
 
     sleep 1
 
-    time_signal_thread = Thread.new do
-      log('time signal thread start', StatTypes::STARTUP)
-      loop do
-        e = Time.now.getutc
-        if t.min == 0 and t.sec < 5
-          h = t.hour + 7
-          post_time_signal(h >= 24 ? h - 24 : h)
-          while Time.now.getutc.min == 0
-            sleep(1)
-          end
-        end
-      end
-    end
-
-    sleep 1
-
     friendship_check_thread = Thread.new do
       log('friendship check thread start', StatTypes::STARTUP)
       loop do
@@ -588,10 +572,11 @@ class MeitanBot
           rescue Timeout::Error, StandardError
             log('Connection to Twitter is disconnected or Application error was occured.', StatTypes::ERROR)
             log($!, StatTypes::ERROR)
+            log("Error at #{__FILE__}:#{__LINE__}", StatTypes::ERROR)
             @statistics[:total_retry_count] += 1
             if (retry_count < @config.max_continuative_retry_count)
               retry_count += 1
-              log('retry:#{retry_count}')
+              log("retry:#{retry_count}")
               sleep @config.short_retry_interval
               log 'retry!'
             else
@@ -1248,7 +1233,7 @@ class MeitanBot
 	"[#{Time.now.strftime('%F_%T%z')}]<#{log_type}> #{String(s)}"
   end
 
-  private :connect, :tweet_greeting, :post_time_signal
+  private :connect, :tweet_greeting
   private :reply_meitan, :reply_mention, :reply_csharp, :reply_morning
   private :reply_departure, :reply_return, :reply_weather, :reply_nullpo
   private :post, :post_reply, :retweet, :send_direct_message, :follow_user, :remove_user
