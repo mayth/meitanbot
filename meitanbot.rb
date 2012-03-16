@@ -306,7 +306,7 @@ class MeitanBot
             end # transaction end
           end # end unless statement
         rescue
-          log($!, StatTypes::ERROR)
+          error_log
         ensure
           db.close
         end
@@ -458,7 +458,7 @@ class MeitanBot
           log("undefined reply_type: #{tweet.other[:reply_type]}", StatTypes::ERROR)
         end
         if res === Net::HTTPForbidden
-          log("returned 403 Forbidden. Considering status duplicate, or rate limit.", StatTypes::ERROR)
+          log("returned 403 Forbidden when reply. Considering status duplicate, or rate limit.", StatTypes::ERROR)
           log "reply thread sleeps #{@config.sleep_when_forbidden_time} sec"
           sleep @config.sleep_when_forbidden_time
         end
@@ -473,7 +473,7 @@ class MeitanBot
         json = @retweet_queue.pop
         res = retweet(json['id'])
         if res === Net::HTTPForbidden
-          log('returned 403 Forbidden. Considering status duplicate, or rate limit.', StatTypes::ERROR)
+          log('returned 403 Forbidden when retweet. Considering status duplicate, or rate limit.', StatTypes::ERROR)
           log "retweet thread sleeps #{SLEEP_WHEN_FORBIDDEN} sec"
           sleep SLEEP_WHEN_FORBIDDEN
         end
@@ -572,7 +572,8 @@ class MeitanBot
           rescue Timeout::Error, StandardError
             log('Connection to Twitter is disconnected or Application error was occured.', StatTypes::ERROR)
             log($!, StatTypes::ERROR)
-            log("Error at #{__FILE__}:#{__LINE__}", StatTypes::ERROR)
+            log('backtrace:', StatTypes::ERROR)
+            $@.each {|s| log('  ' + s, StatTypes::ERROR)}
             @statistics[:total_retry_count] += 1
             if (retry_count < @config.max_continuative_retry_count)
               retry_count += 1
@@ -745,7 +746,7 @@ class MeitanBot
       status = db.get_first_value('SELECT status FROM posts ORDER BY RANDOM() LIMIT 1')
       words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT ?', @config.num_of_word)
     rescue
-      log($!, StatTypes::ERROR)
+      error_log
     ensure
       db.close
     end
@@ -859,7 +860,7 @@ class MeitanBot
       user_words = db.execute('SELECT word FROM words WHERE user_id = ? ORDER BY RANDOM() LIMIT ?', id, @config.num_of_users_word)
       other_words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT ?', @config.num_of_others_word)
     rescue
-      log($!, StatTypes::ERROR)
+      error_log
     ensure
       db.close
     end
@@ -952,7 +953,7 @@ class MeitanBot
       followings = get_followings
       need_to_follow = followers - followings
     rescue
-      log($!, StatTypes::ERROR)
+      error_log
     end
 
     log "need to follow: "
@@ -975,7 +976,7 @@ class MeitanBot
       followings = get_followings
       need_to_remove = followings - followers
     rescue
-      log($!, StatTypes::ERROR)
+      error_log
     end
 
     log 'need to remove: '
@@ -1081,10 +1082,10 @@ class MeitanBot
         when :false
           @is_ignore_owner = false
         else
-          log('unknown value', StatTypes::ERROR)
+          log("#{params[0]} is not boolean value.", StatTypes::ERROR)
         end
       else
-        log('no param', StatTypes::ERROR)
+        log('no parameter.', StatTypes::ERROR)
       end
       log("command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}")
       send_direct_message("command<is_ignore_owner> accepted. current value is #{@is_ignore_owner}", OWNER_ID) if report_by_message
@@ -1099,10 +1100,10 @@ class MeitanBot
         when :false
           @is_enabled_posting = false
         else
-          log('unknown value', StatTypes::ERROR)
+          log("#{params[0]} is not boolean value.", StatTypes::ERROR)
         end
       else
-        log('no param', StatTypes::ERROR)
+        log('no parameter.', StatTypes::ERROR)
       end
       log("command<is_enable_posting> accepted. current value is #{@is_enabled_posting}")
       send_direct_message("command<is_enable_posting> accepted. current value is #{@is_enabled_posting}", OWNER_ID) if report_by_message
@@ -1130,7 +1131,7 @@ class MeitanBot
       begin
         id = Integer(params[1])
       rescue
-        log('ID Conversion failure. Try to get ID from string')
+        log('ID Conversion failed. Try to get ID from string')
         begin
           screen_name = String(params[1])
           res = @access_token.post('http://api.twitter.com/1/users/lookup.json', 'screen_name' => screen_name)
@@ -1139,7 +1140,7 @@ class MeitanBot
             id = json['id'] if json['screen_name'] == screen_name
           end
         rescue
-          log('String conversion / Get the ID from Screen Name failure.', StatTypes::ERROR)
+          error_log 'Converting string or getting the ID from the screenname failed.'
         end
       end
       unless id == 0
@@ -1157,10 +1158,10 @@ class MeitanBot
             end
           end
         else
-          log('no param', StatTypes::ERROR)
+          log('no parameter.', StatTypes::ERROR)
         end
       else
-        log('ID is 0', StatTypes::ERROR)
+        log('ID is 0.', StatTypes::ERROR)
       end
       logstr += " current ignoring users: #{IGNORE_IDS.size}"
       log(logstr)
@@ -1186,7 +1187,7 @@ class MeitanBot
         posts = db.execute('SELECT * FROM posts');
         words = db.execute('SELECT * FROM words');
       rescue
-        log($!, StatTypes::ERROR)
+        error_log
       ensure
         db.close
       end
@@ -1222,6 +1223,15 @@ class MeitanBot
   def log(s, log_type = StatTypes::NORMAL)
     @log_queue.push create_logstr(s, log_type)
   end
+  
+  def error_log(msg = nil)
+    if (msg != nil)
+      @log_queue.push create_logstr(msg, StatTypes::ERROR)
+    end
+    @log_queue.push create_logstr("Exception #{$!} occured!", StatTypes::ERROR)
+    @log_queue.push create_logstr('backtrace:', StatTypes::ERROR)
+    $@.each {|s| @log_queue.push create_logstr('  ' + s, StatTypes::ERROR)}
+  end
 
   def write_log(s)
     open(@config.log_file_prefix + Time.now.strftime('%Y%m%d'), 'a:UTF-8') do |file|
@@ -1230,7 +1240,7 @@ class MeitanBot
   end
 
   def create_logstr(s, log_type = StatTypes::NORMAL)
-	"[#{Time.now.strftime('%F_%T%z')}]<#{log_type}> #{String(s)}"
+    "[#{Time.now.strftime('%F_%T%z')}]<#{log_type}> #{String(s)}"
   end
 
   private :connect, :tweet_greeting
@@ -1270,7 +1280,7 @@ if $0 == __FILE__
         end
       end
       puts "Report by Direct Message: #{command_line_vars[:is_report_enabled]}"
-	when :is_show_result_enabled
+    when :is_show_result_enabled
       if cmd_ary[1]
         case cmd_ary[1].to_sym
         when :true
@@ -1279,7 +1289,7 @@ if $0 == __FILE__
           command_line_vars[:is_show_result_enabled] = false
         end
       end
-	  puts "Show Result: #{command_line_vars[:is_show_result_enabled]}"
+      puts "Show Result: #{command_line_vars[:is_show_result_enabled]}"
     when :show_config
       p bot.config
     when :exit, :quit, :kill
