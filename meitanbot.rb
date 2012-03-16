@@ -306,7 +306,7 @@ class MeitanBot
             end # transaction end
           end # end unless statement
         rescue
-          error_log
+          error_log "error when recording. json: #{json}"
         ensure
           db.close
         end
@@ -746,7 +746,7 @@ class MeitanBot
       status = db.get_first_value('SELECT status FROM posts ORDER BY RANDOM() LIMIT 1')
       words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT ?', @config.num_of_word)
     rescue
-      error_log
+      error_log 'error in random_post when get status/words.'
     ensure
       db.close
     end
@@ -860,7 +860,7 @@ class MeitanBot
       user_words = db.execute('SELECT word FROM words WHERE user_id = ? ORDER BY RANDOM() LIMIT ?', id, @config.num_of_users_word)
       other_words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT ?', @config.num_of_others_word)
     rescue
-      error_log
+      error_log 'error in random_mention when get status/words.'
     ensure
       db.close
     end
@@ -953,7 +953,7 @@ class MeitanBot
       followings = get_followings
       need_to_follow = followers - followings
     rescue
-      error_log
+      error_log 'error in follow_unfollowing_user'
     end
 
     log "need to follow: "
@@ -976,7 +976,7 @@ class MeitanBot
       followings = get_followings
       need_to_remove = followings - followers
     rescue
-      error_log
+      error_log 'error in remove_removed_user'
     end
 
     log 'need to remove: '
@@ -1187,7 +1187,7 @@ class MeitanBot
         posts = db.execute('SELECT * FROM posts');
         words = db.execute('SELECT * FROM words');
       rescue
-        error_log
+        error_log 'error in command:show_db_status when get posts/words count.'
       ensure
         db.close
       end
