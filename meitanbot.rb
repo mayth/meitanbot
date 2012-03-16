@@ -132,66 +132,66 @@ class MeitanBot
   # Regular-Expression that represents replying
   REPLY_REGEX = /^@[a-zA-Z0-9_]+ /
 
-    # Initialize this class.
-    def initialize
-      # Queue for threads
-      @received_queue = Queue.new
-      @post_queue = Queue.new
-      @reply_queue = Queue.new
-      @retweet_queue = Queue.new
-      @event_queue = Queue.new
-      @message_queue = Queue.new
-      @log_queue = Queue.new
-      @recorder_queue = Queue.new
+  # Initialize this class.
+  def initialize
+    # Queue for threads
+    @received_queue = Queue.new
+    @post_queue = Queue.new
+    @reply_queue = Queue.new
+    @retweet_queue = Queue.new
+    @event_queue = Queue.new
+    @message_queue = Queue.new
+    @log_queue = Queue.new
+    @recorder_queue = Queue.new
 
-      @replied_count = Hash.new
-      @pending_word = Hash.new
+    @replied_count = Hash.new
+    @pending_word = Hash.new
 
-      ## Statistics
-      # Required time for status update request.
-      @tweet_request_time = Array.new
-      @statistics = {
-        tweet_request_time_average: 0.0,
-        post_received_count: 0,
-        event_received_count: 0,
-        message_received_count: 0,
-        reply_received_count: 0,
-        post_count: 0,
-        reply_count: 0,
-        send_message_count: 0,
-        total_retry_count: 0
-      }
+    ## Statistics
+    # Required time for status update request.
+    @tweet_request_time = Array.new
+    @statistics = {
+      tweet_request_time_average: 0.0,
+      post_received_count: 0,
+      event_received_count: 0,
+      message_received_count: 0,
+      reply_received_count: 0,
+      post_count: 0,
+      reply_count: 0,
+      send_message_count: 0,
+      total_retry_count: 0
+    }
 
-      # fields
-      @is_ignore_owner = true
-      @is_enabled_posting = true
+    # fields
+    @is_ignore_owner = true
+    @is_enabled_posting = true
 
-      # load credential
-      open(CREDENTIAL_FILE) do |file|
-        @credential = YAML.load(file)
-      end
-
-      @consumer = OAuth::Consumer.new(
-        @credential['consumer_key'],
-        @credential['consumer_secret']
-      )
-
-      @access_token = OAuth::AccessToken.new(
-        @consumer,
-        @credential['access_token'],
-        @credential['access_token_secret']
-      )
-
-      load_config
-
-      read_post_text_files
-
-      # load ignore list
-      open(@config.ignore_id_file, 'r:UTF-8') do |file|
-        IGNORE_IDS << Integer(file.readline)
-      end
-      IGNORE_IDS.uniq!
+    # load credential
+    open(CREDENTIAL_FILE) do |file|
+      @credential = YAML.load(file)
     end
+
+    @consumer = OAuth::Consumer.new(
+      @credential['consumer_key'],
+      @credential['consumer_secret']
+    )
+
+    @access_token = OAuth::AccessToken.new(
+      @consumer,
+      @credential['access_token'],
+      @credential['access_token_secret']
+    )
+
+    load_config
+
+    read_post_text_files
+
+    # load ignore list
+    open(@config.ignore_id_file, 'r:UTF-8') do |file|
+      IGNORE_IDS << Integer(file.readline)
+    end
+    IGNORE_IDS.uniq!
+  end
 
   def load_config
     @config = Config.load('config')
