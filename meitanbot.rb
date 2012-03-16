@@ -132,6 +132,9 @@ class MeitanBot
   # Regular-Expression that represents replying
   REPLY_REGEX = /^@[a-zA-Z0-9_]+ /
 
+  # String to use when create random string (use in create_random_string)
+  CRS_STR_FOR_CREATE = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
   # Initialize this class.
   def initialize
     # Queue for threads
@@ -265,7 +268,16 @@ class MeitanBot
       log('recorder thread start', StatTypes::STARTUP)
       loop do
         json = @recorder_queue.pop
-        db = SQLite3::Database.new(POST_DATABASE_FILE)
+        db = nil
+        # opening DB
+        begin
+          db = SQLite3::Database.new(POST_DATABASE_FILE)
+        rescue
+          error_log 'error in recorder_thread when opening DB'
+          log("Failed recording because opening DB was failed. Skipped tweet: #{json}", StatTypes::ERROR)
+          next
+        end
+        # recording post / word
         begin
           text = create_cleared_text json['text']
           unless text.length < @config.min_status_length
@@ -375,13 +387,20 @@ class MeitanBot
               word = $! if /[（「【『［〈《〔｛\[({<](.*)[）」】』］〉》〕｝\])}>]」/ =~ word
               @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :metaphor, :word => word}))
               time = DateTime.parse(json['created_at'], TWITTER_DATETIME_FORMAT)
-              db = SQLite3::Database.new(POST_DATABASE_FILE)
+              db = nil
               begin
-                db.execute('INSERT INTO words VALUES(NULL, ?, ?, ?, ?, ?)', json['user']['id'], time.strftime(DB_DATETIME_FORMAT), 0, word, 0) # last element is word class. classify!
+                db = SQLite3::Database.new(POST_DATABASE_FILE)
               rescue
-                log($!, StatTypes::ERROR)
-              ensure
-                db.close
+                error_log 'error when opening DB to record metaphor word.'
+              end
+              if (db != nil)
+                begin
+                  db.execute('INSERT INTO words VALUES(NULL, ?, ?, ?, ?, ?)', json['user']['id'], time.strftime(DB_DATETIME_FORMAT), 0, word, 0) # last element is word class. classify!
+                rescue
+                  error_log 'error when recording metaphor word.'
+                ensure
+                  db.close
+                end
               end
             elsif not REPLY_REGEX.match(json['text'])
               if /(おはよ[うー]{0,1}(ございます|ございました){0,1})|(^(むくり|mkr)$)/ =~ json['text']
@@ -741,7 +760,15 @@ class MeitanBot
   end
 
   def random_post()
-    db = SQLite3::Database.new(POST_DATABASE_FILE)
+    db = nil
+    # Opening DB
+    begin
+      db = SQLite3::Database.new(POST_DATABASE_FILE)
+    rescue
+      error_log 'error when opening DB to get status/words.'
+      return
+    end
+    # Get status/words from DB
     begin
       status = db.get_first_value('SELECT status FROM posts ORDER BY RANDOM() LIMIT 1')
       words = db.execute('SELECT word FROM words ORDER BY RANDOM() LIMIT ?', @config.num_of_word)
@@ -750,8 +777,10 @@ class MeitanBot
     ensure
       db.close
     end
+    # Initialize MeCab
     mecab = MeCab::Tagger.new
     node = mecab.parseToNode(status)
+    # Generate post
     result = Array.new
     while node
       unless node.stat == 2 or node.stat == 3 
@@ -842,9 +871,11 @@ class MeitanBot
   end
 
   def record_tweet tweet
+    # stub
   end
 
   def record_word word
+    # stub
   end
 
   # Get "not-meitan" text
@@ -852,9 +883,23 @@ class MeitanBot
     @notmeitan_text.sample
   end
 
-  # Get the replying text
+  # Get the replying text from text file.
+  def random_mention_from_text
+    @reply_mention_text.sample
+  end
+  
+  # Get the replying text by generating from recorded status and words.
   def random_mention(id)
-    db = SQLite3::Database.new(POST_DATABASE_FILE)
+    db = nil
+    # Opening DB
+    begin
+      db = SQLite3::Database.new(POST_DATABASE_FILE)
+    rescue
+      error_log 'error in random_mention when opening DB to get status/words.'
+      log('Get replying text from text file instead.', StatTypes::ERROR)
+      return random_mention_from_text
+    end
+    # Get status/words from DB
     begin
       status = db.get_first_value('SELECT status FROM posts WHERE user_id = ? ORDER BY RANDOM() LIMIT 1', id)
       user_words = db.execute('SELECT word FROM words WHERE user_id = ? ORDER BY RANDOM() LIMIT ?', id, @config.num_of_users_word)
@@ -865,8 +910,10 @@ class MeitanBot
       db.close
     end
     words = user_words + other_words
+    # Initialize MeCab
     mecab = MeCab::Tagger.new
     node = mecab.parseToNode(status)
+    # Generate post
     result = Array.new
     while node
       unless node.stat == 2 or node.stat == 3
@@ -1182,17 +1229,27 @@ class MeitanBot
       log("inquiry<show_friendships> accepted. followings/followers=#{followings.size}/#{followers.size}")
       send_direct_message("inquiry<show_friendships> accepted. followings/followers=#{followings.size}/#{followers.size}", OWNER_ID) if report_by_message
     when :show_db_status
-      db = SQLite3::Database.new(POST_DATABASE_FILE)
+      db = nil
       begin
-        posts = db.execute('SELECT * FROM posts');
-        words = db.execute('SELECT * FROM words');
+        db = SQLite3::Database.new(POST_DATABASE_FILE)
       rescue
-        error_log 'error in command:show_db_status when get posts/words count.'
-      ensure
-        db.close
+        error_log 'error in command:show_db_status when opening DB'
       end
-      log("inquiry<show_db_status> accepted. current recorded posts=#{posts.size}, words=#{words.size}")
-      send_direct_message("inquiry<show_db_status> accepted. current recorded posts=#{posts.size}, words=#{words.size}") if report_by_message
+      if (db != nil)
+        begin
+          posts = db.execute('SELECT * FROM posts');
+          words = db.execute('SELECT * FROM words');
+        rescue
+          error_log 'error in command:show_db_status when get posts/words count.'
+        ensure
+          db.close
+        end
+        log("inquiry<show_db_status> accepted. current recorded posts=#{posts.size}, words=#{words.size}")
+        send_direct_message("inquiry<show_db_status> accepted. current recorded posts=#{posts.size}, words=#{words.size}") if report_by_message
+      else
+        log('inquiry<show_db_status> accepted, but opening DB was failed. So cannot report status.', StatTypes::NORMAL)
+        send_direct_message('inquiry<show_db_status> accepted, but opening DB was failed. So cannot report status.') if report_by_message
+      end
     when :tweet
       if params[0]
         @post_queue.push params[0]
@@ -1231,6 +1288,7 @@ class MeitanBot
     @log_queue.push create_logstr("Exception #{$!} occured!", StatTypes::ERROR)
     @log_queue.push create_logstr('backtrace:', StatTypes::ERROR)
     $@.each {|s| @log_queue.push create_logstr('  ' + s, StatTypes::ERROR)}
+    send_direct_message("Exception #{$!} occured. message: #{msg != nil ? msg : 'none'} ##{create_random_string}")
   end
 
   def write_log(s)
@@ -1241,6 +1299,14 @@ class MeitanBot
 
   def create_logstr(s, log_type = StatTypes::NORMAL)
     "[#{Time.now.strftime('%F_%T%z')}]<#{log_type}> #{String(s)}"
+  end
+  
+  def create_random_string(length = 3)
+    result = Array.new
+    (0...length).each do |i|
+      result[i] = CRS_STR_FOR_CREATE[rand CRS_STR_FOR_CREATE.length]
+    end
+    result.join(nil)
   end
 
   private :connect, :tweet_greeting
