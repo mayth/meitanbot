@@ -14,7 +14,7 @@ require 'MeCab'
 
 class User
   attr_reader :id, :screen_name
-  
+
   def initialize(id, screen_name)
     @id = id
     @screen_name = screen_name
@@ -23,7 +23,7 @@ end
 
 class Tweet
   attr_reader :id, :text, :user, :other
-  
+
   def initialize(id, text, user, other = nil)
     @id = id
     @text = text
@@ -40,9 +40,9 @@ class CurrentWeather
 
   def initialize(condition, temp, humidity, wind)
     @condition = condition
-	@temp = temp
-	@humidity = humidity.gsub('湿度 : ', '')
-	@wind = wind.gsub('風: ', '')
+    @temp = temp
+    @humidity = humidity.gsub('湿度 : ', '')
+    @wind = wind.gsub('風: ', '')
   end
 end
 
@@ -51,9 +51,9 @@ class ForecastWeather
 
   def initialize(day_of_week, condition, low, high)
     @day_of_week = day_of_week
-	  @condition = condition
-	  @low = Integer(low)
-	  @high = Integer(high)
+    @condition = condition
+    @low = Integer(low)
+    @high = Integer(high)
   end
 end
 
@@ -132,66 +132,66 @@ class MeitanBot
   # Regular-Expression that represents replying
   REPLY_REGEX = /^@[a-zA-Z0-9_]+ /
 
-  # Initialize this class.
-  def initialize
-    # Queue for threads
-    @received_queue = Queue.new
-    @post_queue = Queue.new
-    @reply_queue = Queue.new
-    @retweet_queue = Queue.new
-    @event_queue = Queue.new
-    @message_queue = Queue.new
-    @log_queue = Queue.new
-    @recorder_queue = Queue.new
+    # Initialize this class.
+    def initialize
+      # Queue for threads
+      @received_queue = Queue.new
+      @post_queue = Queue.new
+      @reply_queue = Queue.new
+      @retweet_queue = Queue.new
+      @event_queue = Queue.new
+      @message_queue = Queue.new
+      @log_queue = Queue.new
+      @recorder_queue = Queue.new
 
-    @replied_count = Hash.new
-    @pending_word = Hash.new
+      @replied_count = Hash.new
+      @pending_word = Hash.new
 
-    ## Statistics
-    # Required time for status update request.
-    @tweet_request_time = Array.new
-    @statistics = {
-      tweet_request_time_average: 0.0,
-      post_received_count: 0,
-      event_received_count: 0,
-      message_received_count: 0,
-      reply_received_count: 0,
-      post_count: 0,
-      reply_count: 0,
-      send_message_count: 0,
-      total_retry_count: 0
-    }
+      ## Statistics
+      # Required time for status update request.
+      @tweet_request_time = Array.new
+      @statistics = {
+        tweet_request_time_average: 0.0,
+        post_received_count: 0,
+        event_received_count: 0,
+        message_received_count: 0,
+        reply_received_count: 0,
+        post_count: 0,
+        reply_count: 0,
+        send_message_count: 0,
+        total_retry_count: 0
+      }
 
-    # fields
-    @is_ignore_owner = true
-    @is_enabled_posting = true
+      # fields
+      @is_ignore_owner = true
+      @is_enabled_posting = true
 
-    # load credential
-    open(CREDENTIAL_FILE) do |file|
-      @credential = YAML.load(file)
+      # load credential
+      open(CREDENTIAL_FILE) do |file|
+        @credential = YAML.load(file)
+      end
+
+      @consumer = OAuth::Consumer.new(
+        @credential['consumer_key'],
+        @credential['consumer_secret']
+      )
+
+      @access_token = OAuth::AccessToken.new(
+        @consumer,
+        @credential['access_token'],
+        @credential['access_token_secret']
+      )
+
+      load_config
+
+      read_post_text_files
+
+      # load ignore list
+      open(@config.ignore_id_file, 'r:UTF-8') do |file|
+        IGNORE_IDS << Integer(file.readline)
+      end
+      IGNORE_IDS.uniq!
     end
-
-    @consumer = OAuth::Consumer.new(
-      @credential['consumer_key'],
-      @credential['consumer_secret']
-    )
-    
-    @access_token = OAuth::AccessToken.new(
-      @consumer,
-      @credential['access_token'],
-      @credential['access_token_secret']
-    )
-
-    load_config
-
-    read_post_text_files
-
-    # load ignore list
-    open(@config.ignore_id_file, 'r:UTF-8') do |file|
-      IGNORE_IDS << Integer(file.readline)
-    end
-    IGNORE_IDS.uniq!
-  end
 
   def load_config
     @config = Config.load('config')
@@ -322,11 +322,11 @@ class MeitanBot
           log('Owner update the status including meitanbot hash-tag.')
           @retweet_queue.push json
         end
-		unless IGNORE_IDS.include?(user['id'])
+        unless IGNORE_IDS.include?(user['id'])
           if /^@#{SCREEN_NAME} (今|明日|あさって)の天気を教えて$/=~ json['text']
             log "Inquiry of weather detected. reply to #{json['id']}"
             p $1 
-			ahead = 0
+            ahead = 0
             case $1
             when '今'
               ahead = 0
@@ -336,27 +336,27 @@ class MeitanBot
               ahead = 2
             end
             @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :weather, :ahead => ahead}))
-			next
+            next
           elsif /^@#{SCREEN_NAME} ([1-6１２３４５６一二三四五六壱弐参伍])時{0,1}限目{0,1}(の時間を教えて)?$/ =~ json['text']
-		    log "Inquiry of timetable detected. reply to #{json['id']}"
-			time = 0
-			case $1
-			when '1', '１', '一', '壱'
+            log "Inquiry of timetable detected. reply to #{json['id']}"
+            time = 0
+            case $1
+            when '1', '１', '一', '壱'
               time = 1
-			when '2', '２', '二', '弐'
+            when '2', '２', '二', '弐'
               time = 2
-			when '3', '３', '三', '参'
+            when '3', '３', '三', '参'
               time = 3
-			when '4', '４', '四'
+            when '4', '４', '四'
               time = 4
-			when '5', '５', '五', '伍'
+            when '5', '５', '五', '伍'
               time = 5
-			when '6', '６', '六'
+            when '6', '６', '六'
               time = 6
-			end
-			@reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :time_inquiry, :time => time}))
-			next
-		  end # end of checking for replying text
+            end
+            @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :time_inquiry, :time => time}))
+            next
+          end # end of checking for replying text
           @recorder_queue.push json
           unless (@is_ignore_owner and user['id'] == OWNER_ID)
             if /め[　 ーえぇ]*い[　 ーいぃ]*た[　 ーあぁ]*ん/ =~ json['text'] or json['text'].include?('#mei_tan')
@@ -393,12 +393,12 @@ class MeitanBot
                 @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :sleeping}))
               end
               if /((い|行)ってきまー?すー?)|(いてきまー)|(出発)|(でっぱつ)/ =~ json['text']
-			    log "departure detected. reply to #{json['id']}"
+                log "departure detected. reply to #{json['id']}"
                 @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :departure}))
               end
               if /(ただいま|帰宅)/ =~ json['text']
                 log "returning detected. reply to #{json['id']}"
-			    @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :returning}))
+                @reply_queue.push(Tweet.new(json['id'], json['text'], User.new(user['id'], user['screen_name']), {:reply_type => :returning}))
               end
             elsif json['text'].include?('ぬるぽ')
               log "nullpo detected. reply to #{json['id']}"
@@ -408,8 +408,8 @@ class MeitanBot
             log 'owner ignored'
           end # end of unless block (ignoring owner)
         else
-		  log "ignore list includes id:#{user['id']}. ignored."
-		end # end of unless block (ignoring IGNORE_IDS)
+          log "ignore list includes id:#{user['id']}. ignored."
+        end # end of unless block (ignoring IGNORE_IDS)
       end # end of loopd
     end # end of Thread
 
@@ -464,9 +464,9 @@ class MeitanBot
         end
       end
     end
-    
+
     sleep 1
-    
+
     retweet_thread = Thread.new do
       log('retweet thread start', StatTypes::STARTUP)
       loop do
@@ -479,7 +479,7 @@ class MeitanBot
         end
       end
     end
-    
+
     sleep 1
 
     event_thread = Thread.new do
@@ -508,9 +508,9 @@ class MeitanBot
         text = json['direct_message']['text'].strip
         if sender['id'] == OWNER_ID && text.start_with?('cmd ')
           log "Received Command Message"
-		  cmd_ary = text.split
-		  cmd_ary.shift
-		  cmd = cmd_ary.shift
+          cmd_ary = text.split
+          cmd_ary.shift
+          cmd = cmd_ary.shift
           control_command(cmd.to_sym, cmd_ary, true)
         end
       end # end of loop do ...
@@ -541,7 +541,7 @@ class MeitanBot
     friendship_check_thread = Thread.new do
       log('friendship check thread start', StatTypes::STARTUP)
       loop do
-	    log 'check friendship'
+        log 'check friendship'
         follow_unfollowing_user
         remove_removed_user
         sleep(60 * 60 * 12) # sleep half a day
@@ -596,9 +596,9 @@ class MeitanBot
         update_ignore_list
       end
     end
-    
+
     sleep 1
-    
+
     statistics_thread = Thread.new do
       begin
         log('statistics thread start', StatTypes::STARTUP)
@@ -629,11 +629,11 @@ class MeitanBot
         log("Meitan-bot statistics thread terminated at #{Time.now.strftime("%X")}", StatTypes::STAT)
       end
     end
-    
+
     sleep 1
 
     tweet_greeting
-    
+
     log('startup complete.', StatTypes::STARTUP)
   end # end of run method
 
@@ -660,7 +660,7 @@ class MeitanBot
     log "replying to csharp"
     post_reply(reply_to_user, in_reply_to_id, random_csharp)
   end
-  
+
   def reply_morning(reply_to_user, in_reply_to_id)
     log 'replying to morning greeting'
     post_reply(reply_to_user, in_reply_to_id, random_morning)
@@ -675,7 +675,7 @@ class MeitanBot
     log 'replying to departure'
     post_reply(reply_to_user, in_reply_to_id, random_departure)
   end
-  
+
   def reply_return(reply_to_user, in_reply_to_id)
     log 'replying to returning'
     if reply_to_user.id == 252004214
@@ -687,44 +687,44 @@ class MeitanBot
 
   def reply_weather(reply_to_user, in_reply_to_id, ahead)
     raise ArgumentError if ahead < 0 or 4 < ahead
-	log 'replying to weather inquiry'
-	doc = REXML::Document.new(Net::HTTP.get(URI.parse(FORECAST_API_URL + '?weather=' + FORECAST_LOCATION + '&hl=ja')).toutf8)
+    log 'replying to weather inquiry'
+    doc = REXML::Document.new(Net::HTTP.get(URI.parse(FORECAST_API_URL + '?weather=' + FORECAST_LOCATION + '&hl=ja')).toutf8)
     log 'doc generated.'
-	if ahead == 0 # Get current condition
+    if ahead == 0 # Get current condition
       log 'get current conditions'
-	  cond_element = doc.elements['/xml_api_reply/weather/current_conditions']
-	  p cond_element
-	  cond = CurrentWeather.new(
+      cond_element = doc.elements['/xml_api_reply/weather/current_conditions']
+      p cond_element
+      cond = CurrentWeather.new(
         cond_element.elements['condition'].attributes['data'],
         cond_element.elements['temp_c'].attributes['data'],
-		cond_element.elements['humidity'].attributes['data'],
-		cond_element.elements['wind'].attributes['data'])
-	  log "cond: condition=#{cond.condition}, temp=#{cond.temp}, humidity=#{cond.humidity}, wind=#{cond.wind}"
-	  post_reply(reply_to_user, in_reply_to_id, "今の天気は#{cond.condition}、気温#{cond.temp}℃、湿度#{cond.humidity}、風は#{cond.wind}だよ。")
+        cond_element.elements['humidity'].attributes['data'],
+        cond_element.elements['wind'].attributes['data'])
+        log "cond: condition=#{cond.condition}, temp=#{cond.temp}, humidity=#{cond.humidity}, wind=#{cond.wind}"
+        post_reply(reply_to_user, in_reply_to_id, "今の天気は#{cond.condition}、気温#{cond.temp}℃、湿度#{cond.humidity}、風は#{cond.wind}だよ。")
     else # Get forecast condition
       log 'get forecast condition'
-	  cond_element = doc.elements['/xml_api_reply/weather/forecast_conditions[' + String(ahead) + ']']
-	  cond = ForecastWeather.new(
-	    cond_element.elements['condition'].attributes['data'],
-		cond_element.elements['day_of_week'].attributes['data'],
-		cond_element.elements['low'].attributes['data'],
-		cond_element.elements['high'].attributes['data'])
-	  case Integer(ahead)
-	  when 1
-	    target_day = '明日'
-      when 2
-	    target_day = 'あさって'
-      else
-        log 'unknown ahead value'
-	    raise ArgumentError
-	  end
-	  log "cond:"
-	  log " condition=#{cond.condition}"
-	  log " temp=#{String(cond.temp)}"
-	  log " humidity=#{String(cond.humidity)}"
-	  log " wind=#{String(cond.wind)}"
-	  log "target_day: #{target_day}"
-	  post_reply(reply_to_user, in_reply_to_id, "#{target_day}（#{cond.day_of_week}曜日）の天気は#{cond.condition}、気温は最高#{cond.high}℃、最低#{cond.low}℃だよ。")
+      cond_element = doc.elements['/xml_api_reply/weather/forecast_conditions[' + String(ahead) + ']']
+      cond = ForecastWeather.new(
+        cond_element.elements['condition'].attributes['data'],
+        cond_element.elements['day_of_week'].attributes['data'],
+        cond_element.elements['low'].attributes['data'],
+        cond_element.elements['high'].attributes['data'])
+        case Integer(ahead)
+        when 1
+          target_day = '明日'
+        when 2
+          target_day = 'あさって'
+        else
+          log 'unknown ahead value'
+          raise ArgumentError
+        end
+        log "cond:"
+        log " condition=#{cond.condition}"
+        log " temp=#{String(cond.temp)}"
+        log " humidity=#{String(cond.humidity)}"
+        log " wind=#{String(cond.wind)}"
+        log "target_day: #{target_day}"
+        post_reply(reply_to_user, in_reply_to_id, "#{target_day}（#{cond.day_of_week}曜日）の天気は#{cond.condition}、気温は最高#{cond.high}℃、最低#{cond.low}℃だよ。")
     end
   end
 
@@ -778,8 +778,8 @@ class MeitanBot
       log "replying"
       req_start = Time.now
       res = @access_token.post('https://api.twitter.com/1/statuses/update.json',
-        'status' => "@#{reply_to_user.screen_name} " + status,
-        'in_reply_to_status_id' => in_reply_to_id)
+                               'status' => "@#{reply_to_user.screen_name} " + status,
+                               'in_reply_to_status_id' => in_reply_to_id)
       req_end = Time.now
       @tweet_request_time << req_end - req_start
       res
@@ -795,7 +795,7 @@ class MeitanBot
       log "posting"
       req_start = Time.now
       res = @access_token.post('https://api.twitter.com/1/statuses/update.json',
-        'status' => status)
+                               'status' => status)
       req_end = Time.now
       @tweet_request_time << req_end - req_start
       res
@@ -819,8 +819,8 @@ class MeitanBot
     @statistics[:send_message_count] += 1
     log "Sending Direct Message"
     @access_token.post('https://api.twitter.com/1/direct_messages/new.json',
-      'user_id' => recipient_id,
-      'text' => text)
+                       'user_id' => recipient_id,
+                       'text' => text)
   end
 
   # Follow the user
@@ -828,7 +828,7 @@ class MeitanBot
     unless id == MY_ID
       log "following user: #{id}"
       @access_token.post('https://api.twitter.com/1/friendships/create.json',
-        'user_id' => id)
+                         'user_id' => id)
     end
   end
 
@@ -837,7 +837,7 @@ class MeitanBot
     unless id == MY_ID
       log "removing user: #{id}"
       @access_token.post('https://api.twitter.com/1/friendships/destroy.json',
-        'user_id' => id)
+                         'user_id' => id)
     end
   end
 
@@ -894,7 +894,7 @@ class MeitanBot
   def random_morning
     @reply_morning_text.sample
   end
-  
+
   # Get the replying text for the status containing sleeping
   def random_sleeping
     @reply_sleeping_text.sample
@@ -904,7 +904,7 @@ class MeitanBot
   def random_departure
     @reply_departure_text.sample
   end
-  
+
   def random_return
     @reply_return_text.sample
   end
@@ -915,8 +915,8 @@ class MeitanBot
     result = []
     if (cursor != '0')
       res = @access_token.get('https://api.twitter.com/1/followers/ids.json',
-        'cursor' => cursor,
-        'screen_name' => SCREEN_NAME)
+                              'cursor' => cursor,
+                              'screen_name' => SCREEN_NAME)
       json = JSON.parse(res.body)
       result << json['ids']
       if json['next_cursor_str']
@@ -932,8 +932,8 @@ class MeitanBot
     result = []
     if (cursor != '0')
       res = @access_token.get('https://api.twitter.com/1/friends/ids.json',
-        'cursor' => cursor,
-        'screen_name' => SCREEN_NAME)
+                              'cursor' => cursor,
+                              'screen_name' => SCREEN_NAME)
       json = JSON.parse(res.body)
       result << json['ids']
       if json['next_cursor_str']
@@ -987,7 +987,7 @@ class MeitanBot
     for id in need_to_remove do
       remove_user id
     end
-    
+
     return followings.size - need_to_remove.size
   end
 
@@ -1004,11 +1004,11 @@ class MeitanBot
     open(REPLY_CSHARP_FILE, 'r:UTF-8') do |file|
       @reply_csharp_text = file.readlines.collect{|line| line.strip}
     end
-    
+
     open(REPLY_MORNING_FILE, 'r:UTF-8') do |file|
       @reply_morning_text = file.readlines.collect{|line| line.strip}
     end
-    
+
     open(REPLY_SLEEPING_FILE, 'r:UTF-8') do |file|
       @reply_sleeping_text = file.readlines.collect{|line| line.strip}
     end
@@ -1016,7 +1016,7 @@ class MeitanBot
     open(REPLY_DEPARTURE_FILE, 'r:UTF-8') do |file|
       @reply_departure_text = file.readlines.collect{|line| line.strip}
     end
-    
+
     open(REPLY_RETURN_FILE, 'r:UTF-8') do |file|
       @reply_return_text = file.readlines.collect{|line| line.strip}
     end
@@ -1035,7 +1035,7 @@ class MeitanBot
     for s in @reply_csharp_text do
       log ' ' + s
     end
-    
+
     log 'reply departure text:'
     for s in @reply_departure_text do
       log ' ' + s
@@ -1050,7 +1050,7 @@ class MeitanBot
   def update_ignore_list
     log 'update ignore list'
     open(@config.ignore_id_file, 'w:UTF-8') do |file|
-     IGNORE_IDS.each {|s| file.puts s}
+      IGNORE_IDS.each {|s| file.puts s}
     end
   end
 
@@ -1059,11 +1059,11 @@ class MeitanBot
   # Cleared text is the text that is removed mentions, hashtags, URLs, RTs and QTs.
   def create_cleared_text(s)
     s.gsub(/[RMQ]T @[a-zA-Z0-9_]+:.*/, '')
-     .gsub(/\. ?(@[a-zA-Z0-9_]+ )+/, '')
-     .gsub(/@[a-zA-Z0-9_]+/, '')
-     .gsub(%r[(https?|ftp)(:\/\/[-_.!~*\'()a-zA-Z0-9;\/?:\@&=+\$,%#]+)], '')
-     .gsub(/#.+([ 　、。]|$)/, '')
-     .strip
+    .gsub(/\. ?(@[a-zA-Z0-9_]+ )+/, '')
+    .gsub(/@[a-zA-Z0-9_]+/, '')
+    .gsub(%r[(https?|ftp)(:\/\/[-_.!~*\'()a-zA-Z0-9;\/?:\@&=+\$,%#]+)], '')
+    .gsub(/#.+([ 　、。]|$)/, '')
+      .strip
   end
 
   # Control this bot.
@@ -1073,7 +1073,7 @@ class MeitanBot
   def control_command(command, params, report_by_message = true)
     log "control_command: #{command}"
     raise ArgumentError unless params.is_a?(Array)
-	case command
+    case command
     when :is_ignore_owner
       if params[0]
         case params[0].to_sym
@@ -1175,7 +1175,7 @@ class MeitanBot
       follow_unfollowing_user
       users = remove_removed_user
       log("command<check_friendships> accepted. current followings: #{users}")
-	  send_direct_message("command<check_friendships> accepted. current followings: #{users}") if report_by_message
+      send_direct_message("command<check_friendships> accepted. current followings: #{users}") if report_by_message
     when :show_friendships
       followings = get_followings
       followers = get_followers
@@ -1205,15 +1205,15 @@ class MeitanBot
     when :ping
       log('inquiry<ping> accepted. Meitan-bot is alive! ' + Time.now.to_s)
       send_direct_message("inquiry<ping> accepted. Meitan-bot is alive! #{Time.now.to_s}", OWNER_ID) if report_by_message
-	when :host
-	  running_host = 'unknown'
-	  open('running_host', 'r:UTF-8') {|file| running_host = file.gets} if File.exist?('running_host')
-	  log('inquiry<host> accepted. Meitan-bot is running at: ' + running_host)
-	  send_direct_message('inquiry<host> accepted. Meitan-bot is running at: ' + running_host, OWNER_ID) if report_by_message
-	when :kill
-	  log('command<kill> accepted. Meitan-bot will be terminated soon.')
-	  send_direct_message('command<kill> accepted. Meitan-bot will be terminated soon.', OWNER_ID) if report_by_message
-	  exit
+    when :host
+      running_host = 'unknown'
+      open('running_host', 'r:UTF-8') {|file| running_host = file.gets} if File.exist?('running_host')
+      log('inquiry<host> accepted. Meitan-bot is running at: ' + running_host)
+      send_direct_message('inquiry<host> accepted. Meitan-bot is running at: ' + running_host, OWNER_ID) if report_by_message
+    when :kill
+      log('command<kill> accepted. Meitan-bot will be terminated soon.')
+      send_direct_message('command<kill> accepted. Meitan-bot will be terminated soon.', OWNER_ID) if report_by_message
+      exit
     else
       log('unknown command received. to show help, please send help command.')
       send_direct_message('unknown command received.', OWNER_ID) if report_by_message
@@ -1223,7 +1223,7 @@ class MeitanBot
   def log(s, log_type = StatTypes::NORMAL)
     @log_queue.push create_logstr(s, log_type)
   end
-  
+
   def error_log(msg = nil)
     if (msg != nil)
       @log_queue.push create_logstr(msg, StatTypes::ERROR)
