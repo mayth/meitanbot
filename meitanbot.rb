@@ -165,9 +165,13 @@ class MeitanBot
       total_retry_count: 0
     }
 
-    # fields
+    ## fields
+    # Ignores owner's post
     @is_ignore_owner = true
+    # Enables posting
     @is_enabled_posting = true
+    # Reports by direct message when an error occured.
+    @report_by_message_on_error = true
 
     # load credential
     open(CREDENTIAL_FILE) do |file|
@@ -1288,7 +1292,7 @@ class MeitanBot
     @log_queue.push create_logstr("Exception #{$!} occured!", StatTypes::ERROR)
     @log_queue.push create_logstr('backtrace:', StatTypes::ERROR)
     $@.each {|s| @log_queue.push create_logstr('  ' + s, StatTypes::ERROR)}
-    send_direct_message("Exception #{$!} occured. message: #{msg != nil ? msg : 'none'} ##{create_random_string}")
+    send_direct_message("Exception #{$!} occured. message: #{msg != nil ? msg : 'none'} ##{create_random_string}") if @report_by_message_on_error
   end
 
   def write_log(s)
