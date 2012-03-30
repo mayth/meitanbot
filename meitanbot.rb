@@ -545,6 +545,7 @@ class MeitanBot
       log('post thread start', StatTypes::STARTUP)
       loop do
         s = @post_queue.pop
+        log 'post poped'
         post(s)
       end
     end
@@ -554,8 +555,14 @@ class MeitanBot
     random_post_thread = Thread.new do
       log('random post thread start', StatTypes::STARTUP)
       loop do
-        @post_queue.push random_post
-        sleep @config.random_post_interval
+        begin
+          log 'random post'
+          @post_queue.push random_post
+          sleep @config.random_post_interval
+        rescue
+          error_log 'error in random posting. Retry.'
+          retry
+        end
       end
     end
 
@@ -808,7 +815,7 @@ class MeitanBot
     if @is_enabled_posting
       @statistics[:post_count] += 1
       @statistics[:reply_count] += 1
-      log "replying"
+      log "replying to #{in_reply_to_id} by @#{reply_to_user.screen_name}"
       req_start = Time.now
       res = @access_token.post('https://api.twitter.com/1/statuses/update.json',
                                'status' => "@#{reply_to_user.screen_name} " + status,
@@ -1161,6 +1168,24 @@ class MeitanBot
     when :is_enable_posting?
       log("inquiry<is_enable_posting> accepted. current value is #{@is_enabled_posting}")
       send_direct_message("inquiry<is_enable_posting> accepted. current value is #{@is_enabled_posting}", OWNER_ID) if report_by_message
+    when :report_error
+      if params[0]
+        case params[0].to_sym
+        when :true
+          @report_by_message_on_error = true
+        when :false
+          @report_by_message_on_error = false
+        else
+          log("#{params[0]} is not boolean value.", StatTypes::ERROR)
+        end
+      else
+        log('no parameter.', StatTypes::ERROR)
+      end
+      log("command<report_error> accepted. current value is #{@report_by_message_on_error}")
+      send_direct_message("command<report_error> accepted. current value is #{@report_by_message_on_error}", OWNER_ID) if report_by_message
+    when :report_error?
+      log("inquiry<report_error> accepted. current value is #{@report_by_message_on_error}")
+      send_direct_message("inquiry<report_error> accepted. current value is #{@report_by_message_on_error}", OWNER_ID) if report_by_message
     when :show_post_text_count
       log("command<show_post_text_count> accepted. meitan:#{@notmeitan_text.size}, reply:#{@reply_mention_text.size}, csharp:#{@reply_csharp_text.size}")
       send_direct_message("command<show_post_text_count> accepted. meitan:#{@notmeitan_text.size}, reply:#{@reply_mention_text.size}, csharp:#{@reply_csharp_text.size}", OWNER_ID) if report_by_message
