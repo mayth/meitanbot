@@ -2,6 +2,10 @@
 /doc
 *~
 *.swp
+*.db
 *.log
 log_*
 stat_*
+bundle/
+.bundle/
+running_host
